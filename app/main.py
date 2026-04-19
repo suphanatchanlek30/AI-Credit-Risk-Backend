@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 from fastapi import Depends, FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
@@ -24,6 +26,31 @@ app = FastAPI(
     title="Home Credit Risk API",
     description="รับข้อมูลลูกค้า, preprocess, และพยากรณ์ความเสี่ยงผิดนัด (TARGET=1).",
     version="1.0.0",
+)
+
+
+def _get_cors_origins() -> list[str]:
+    env_origins = os.getenv("CORS_ALLOW_ORIGINS", "").strip()
+    if env_origins:
+        return [o.strip() for o in env_origins.split(",") if o.strip()]
+    return [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "http://localhost:4200",
+        "http://127.0.0.1:4200",
+    ]
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_get_cors_origins(),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
