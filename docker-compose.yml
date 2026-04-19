@@ -1,32 +1,32 @@
 services:
   postgres:
-    image: postgres:16-alpine
-    container_name: credit-risk-postgres
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    container_name: ${POSTGRES_CONTAINER_NAME:-credit-risk-postgres}
     restart: unless-stopped
     environment:
-      POSTGRES_DB: credit_risk
-      POSTGRES_USER: credit_user
-      POSTGRES_PASSWORD: credit_pass
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "5435:5432"
+      - "${POSTGRES_HOST_PORT:-5435}:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+      - ${POSTGRES_VOLUME_NAME:-pgdata}:/var/lib/postgresql/data
+      - ${POSTGRES_INIT_DIR:-./docker/postgres/init}:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U credit_user -d credit_risk"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 20
 
   pgadmin:
-    image: dpage/pgadmin4:8
-    container_name: credit-risk-pgadmin
+    image: ${PGADMIN_IMAGE:-dpage/pgadmin4:8}
+    container_name: ${PGADMIN_CONTAINER_NAME:-credit-risk-pgadmin}
     restart: unless-stopped
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@example.com
-      PGADMIN_DEFAULT_PASSWORD: admin1234
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
     ports:
-      - "5050:80"
+      - "${PGADMIN_HOST_PORT:-5050}:80"
     depends_on:
       postgres:
         condition: service_healthy
@@ -35,12 +35,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: credit-risk-api
+    container_name: ${API_CONTAINER_NAME:-credit-risk-api}
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgresql+psycopg://credit_user:credit_pass@postgres:5432/credit_risk
+      DATABASE_URL: ${DOCKER_DATABASE_URL}
+      APP_NAME: ${APP_NAME}
+      APP_ENV: ${APP_ENV}
     ports:
-      - "8000:8000"
+      - "${API_HOST_PORT:-8000}:8000"
     volumes:
       - ./artifacts:/app/artifacts
       - ./config:/app/config
@@ -50,3 +54,4 @@ services:
 
 volumes:
   pgdata:
+    name: ${POSTGRES_VOLUME_NAME:-pgdata}
