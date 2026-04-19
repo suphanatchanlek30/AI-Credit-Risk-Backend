@@ -1,0 +1,82 @@
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Python cache / build
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# Logs / runtime
+*.log
+*.pid
+*.sqlite
+*.sqlite3
+*.db
+
+# ML artifacts / outputs
+artifacts/
+models/
+checkpoints/
+mlruns/
+wandb/
+outputs/
+predictions/
+*.joblib
+*.pkl
+*.pickle
+*.onnx
+*.h5
+*.pt
+*.pth
+
+# Large or raw datasets
+input/
+data/
+dataset/
+datasets/
+*.parquet
+*.feather
+*.hdf5
+*.zip
+*.7z
+*.tar
+*.gz
+
+# Frontend / Node
+node_modules/
+.next/
+coverage/
+
+# Docker local overrides
+docker-compose.override.yml

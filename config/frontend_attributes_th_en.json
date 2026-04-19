@@ -1,0 +1,857 @@
+{
+    "version":  "1.0.0",
+    "purpose":  "Frontend form attributes (minimum payload) for /predict",
+    "minimum_field_count":  44,
+    "request_shape":  {
+                          "payload_object":  "Thai keys or English keys",
+                          "threshold":  "float 0-1"
+                      },
+    "value_maps":  {
+                       "yes_no_01":  {
+                                         "0":  "No / ไม่ใช่",
+                                         "1":  "Yes / ใช่"
+                                     },
+                       "yn_flag":  {
+                                       "N":  "No / ไม่มี",
+                                       "Y":  "Yes / มี"
+                                   },
+                       "gender":  {
+                                      "F":  "Female / หญิง",
+                                      "M":  "Male / ชาย"
+                                  },
+                       "response_decision_en":  {
+                                                    "below_threshold":  "Good / ผ่านเกณฑ์",
+                                                    "above_threshold":  "Bad / ความเสี่ยงสูง"
+                                                },
+                       "response_risk_band_en":  {
+                                                     "low":  "ต่ำ",
+                                                     "medium":  "ปานกลาง",
+                                                     "high":  "สูง"
+                                                 }
+                   },
+    "thai_to_english":  {
+                            "จำนวนสังคมวงใกล้ชิด30วัน":  "OBS_30_CNT_SOCIAL_CIRCLE",
+                            "รหัสลูกค้า":  "SK_ID_CURR",
+                            "มีเบอร์ที่ทำงาน":  "FLAG_EMP_PHONE",
+                            "มีโทรศัพท์บ้าน":  "FLAG_WORK_PHONE",
+                            "ประเภทอาชีพรายได้":  "NAME_INCOME_TYPE",
+                            "คะแนนภายนอก2":  "EXT_SOURCE_2",
+                            "เรตติ้งภูมิภาคลูกค้า":  "REGION_RATING_CLIENT",
+                            "วันเปลี่ยนเอกสาร":  "DAYS_ID_PUBLISH",
+                            "สัดส่วนพื้นที่รวม":  "TOTALAREA_MODE",
+                            "เรตติ้งภูมิภาคพร้อมเมือง":  "REGION_RATING_CLIENT_W_CITY",
+                            "ประเภทที่อยู่อาศัย":  "NAME_HOUSING_TYPE",
+                            "อยู่จริงทำงานต่างเมืองหรือไม่":  "LIVE_CITY_NOT_WORK_CITY",
+                            "อายุวันเกิด":  "DAYS_BIRTH",
+                            "คะแนนภายนอก1":  "EXT_SOURCE_1",
+                            "รายได้รวม":  "AMT_INCOME_TOTAL",
+                            "จำนวนขอเครดิตบูโรไตรมาส":  "AMT_REQ_CREDIT_BUREAU_QRT",
+                            "จำนวนขอเครดิตบูโรปีนี้":  "AMT_REQ_CREDIT_BUREAU_YEAR",
+                            "อายุงานวัน":  "DAYS_EMPLOYED",
+                            "ชั่วโมงที่ยื่น":  "HOUR_APPR_PROCESS_START",
+                            "ประเภทองค์กร":  "ORGANIZATION_TYPE",
+                            "มีมือถือที่ติดต่อได้":  "FLAG_CONT_MOBILE",
+                            "มีรถยนต์":  "FLAG_OWN_CAR",
+                            "จำนวนบุตร":  "CNT_CHILDREN",
+                            "เพศ":  "CODE_GENDER",
+                            "สถานภาพครอบครัว":  "NAME_FAMILY_STATUS",
+                            "จำนวนขอเครดิตบูโรชั่วโมง":  "AMT_REQ_CREDIT_BUREAU_HOUR",
+                            "วันในสัปดาห์ที่ยื่น":  "WEEKDAY_APPR_PROCESS_START",
+                            "ทะเบียนทำงานต่างภูมิภาคหรือไม่":  "REG_REGION_NOT_WORK_REGION",
+                            "หนี้เสียวงใกล้ชิด60วัน":  "DEF_60_CNT_SOCIAL_CIRCLE",
+                            "มีมือถือ":  "FLAG_MOBIL",
+                            "วันเปลี่ยนทะเบียนบ้าน":  "DAYS_REGISTRATION",
+                            "ผู้ติดตามตอนยื่นกู้":  "NAME_TYPE_SUITE",
+                            "ราคาสินค้า":  "AMT_GOODS_PRICE",
+                            "จำนวนสังคมวงใกล้ชิด60วัน":  "OBS_60_CNT_SOCIAL_CIRCLE",
+                            "หนี้เสียวงใกล้ชิด30วัน":  "DEF_30_CNT_SOCIAL_CIRCLE",
+                            "จำนวนขอเครดิตบูโรสัปดาห์":  "AMT_REQ_CREDIT_BUREAU_WEEK",
+                            "มีอีเมล":  "FLAG_EMAIL",
+                            "ทะเบียนอยู่ภูมิภาคเดิมหรือไม่":  "REG_REGION_NOT_LIVE_REGION",
+                            "ทะเบียนทำงานต่างเมืองหรือไม่":  "REG_CITY_NOT_WORK_CITY",
+                            "สัดส่วนประชากรภูมิภาค":  "REGION_POPULATION_RELATIVE",
+                            "ทะเบียนอยู่ต่างเมืองหรือไม่":  "REG_CITY_NOT_LIVE_CITY",
+                            "วงเงินสินเชื่อ":  "AMT_CREDIT",
+                            "มีโทรศัพท์":  "FLAG_PHONE",
+                            "ระดับการศึกษา":  "NAME_EDUCATION_TYPE",
+                            "อยู่จริงทำงานต่างภูมิภาคหรือไม่":  "LIVE_REGION_NOT_WORK_REGION",
+                            "จำนวนขอเครดิตบูโรรายเดือน":  "AMT_REQ_CREDIT_BUREAU_MON",
+                            "ค่างวดรายงวด":  "AMT_ANNUITY",
+                            "จำนวนขอเครดิตบูโรวัน":  "AMT_REQ_CREDIT_BUREAU_DAY",
+                            "อายุรถ":  "OWN_CAR_AGE",
+                            "คะแนนภายนอก3":  "EXT_SOURCE_3",
+                            "จำนวนสมาชิกครอบครัว":  "CNT_FAM_MEMBERS",
+                            "วันเปลี่ยนเบอร์ล่าสุด":  "DAYS_LAST_PHONE_CHANGE",
+                            "อาชีพ":  "OCCUPATION_TYPE",
+                            "มีอสังหาริมทรัพย์":  "FLAG_OWN_REALTY",
+                            "ประเภทสินเชื่อ":  "NAME_CONTRACT_TYPE"
+                        },
+    "english_to_thai":  {
+                            "REGION_RATING_CLIENT_W_CITY":  "เรตติ้งภูมิภาคพร้อมเมือง",
+                            "AMT_REQ_CREDIT_BUREAU_YEAR":  "จำนวนขอเครดิตบูโรปีนี้",
+                            "AMT_GOODS_PRICE":  "ราคาสินค้า",
+                            "DAYS_REGISTRATION":  "วันเปลี่ยนทะเบียนบ้าน",
+                            "NAME_FAMILY_STATUS":  "สถานภาพครอบครัว",
+                            "AMT_REQ_CREDIT_BUREAU_HOUR":  "จำนวนขอเครดิตบูโรชั่วโมง",
+                            "AMT_REQ_CREDIT_BUREAU_QRT":  "จำนวนขอเครดิตบูโรไตรมาส",
+                            "REG_REGION_NOT_WORK_REGION":  "ทะเบียนทำงานต่างภูมิภาคหรือไม่",
+                            "REGION_RATING_CLIENT":  "เรตติ้งภูมิภาคลูกค้า",
+                            "DAYS_LAST_PHONE_CHANGE":  "วันเปลี่ยนเบอร์ล่าสุด",
+                            "HOUR_APPR_PROCESS_START":  "ชั่วโมงที่ยื่น",
+                            "REG_CITY_NOT_LIVE_CITY":  "ทะเบียนอยู่ต่างเมืองหรือไม่",
+                            "OBS_30_CNT_SOCIAL_CIRCLE":  "จำนวนสังคมวงใกล้ชิด30วัน",
+                            "REG_CITY_NOT_WORK_CITY":  "ทะเบียนทำงานต่างเมืองหรือไม่",
+                            "WEEKDAY_APPR_PROCESS_START":  "วันในสัปดาห์ที่ยื่น",
+                            "DEF_60_CNT_SOCIAL_CIRCLE":  "หนี้เสียวงใกล้ชิด60วัน",
+                            "DAYS_ID_PUBLISH":  "วันเปลี่ยนเอกสาร",
+                            "CNT_FAM_MEMBERS":  "จำนวนสมาชิกครอบครัว",
+                            "NAME_INCOME_TYPE":  "ประเภทอาชีพรายได้",
+                            "OWN_CAR_AGE":  "อายุรถ",
+                            "OCCUPATION_TYPE":  "อาชีพ",
+                            "AMT_REQ_CREDIT_BUREAU_MON":  "จำนวนขอเครดิตบูโรรายเดือน",
+                            "AMT_ANNUITY":  "ค่างวดรายงวด",
+                            "LIVE_REGION_NOT_WORK_REGION":  "อยู่จริงทำงานต่างภูมิภาคหรือไม่",
+                            "DAYS_EMPLOYED":  "อายุงานวัน",
+                            "DEF_30_CNT_SOCIAL_CIRCLE":  "หนี้เสียวงใกล้ชิด30วัน",
+                            "CODE_GENDER":  "เพศ",
+                            "FLAG_WORK_PHONE":  "มีโทรศัพท์บ้าน",
+                            "FLAG_PHONE":  "มีโทรศัพท์",
+                            "SK_ID_CURR":  "รหัสลูกค้า",
+                            "REGION_POPULATION_RELATIVE":  "สัดส่วนประชากรภูมิภาค",
+                            "OBS_60_CNT_SOCIAL_CIRCLE":  "จำนวนสังคมวงใกล้ชิด60วัน",
+                            "FLAG_CONT_MOBILE":  "มีมือถือที่ติดต่อได้",
+                            "AMT_REQ_CREDIT_BUREAU_DAY":  "จำนวนขอเครดิตบูโรวัน",
+                            "NAME_TYPE_SUITE":  "ผู้ติดตามตอนยื่นกู้",
+                            "REG_REGION_NOT_LIVE_REGION":  "ทะเบียนอยู่ภูมิภาคเดิมหรือไม่",
+                            "FLAG_MOBIL":  "มีมือถือ",
+                            "FLAG_EMAIL":  "มีอีเมล",
+                            "AMT_CREDIT":  "วงเงินสินเชื่อ",
+                            "DAYS_BIRTH":  "อายุวันเกิด",
+                            "EXT_SOURCE_3":  "คะแนนภายนอก3",
+                            "AMT_INCOME_TOTAL":  "รายได้รวม",
+                            "FLAG_OWN_REALTY":  "มีอสังหาริมทรัพย์",
+                            "NAME_CONTRACT_TYPE":  "ประเภทสินเชื่อ",
+                            "ORGANIZATION_TYPE":  "ประเภทองค์กร",
+                            "AMT_REQ_CREDIT_BUREAU_WEEK":  "จำนวนขอเครดิตบูโรสัปดาห์",
+                            "EXT_SOURCE_2":  "คะแนนภายนอก2",
+                            "TOTALAREA_MODE":  "สัดส่วนพื้นที่รวม",
+                            "FLAG_EMP_PHONE":  "มีเบอร์ที่ทำงาน",
+                            "NAME_EDUCATION_TYPE":  "ระดับการศึกษา",
+                            "FLAG_OWN_CAR":  "มีรถยนต์",
+                            "EXT_SOURCE_1":  "คะแนนภายนอก1",
+                            "CNT_CHILDREN":  "จำนวนบุตร",
+                            "LIVE_CITY_NOT_WORK_CITY":  "อยู่จริงทำงานต่างเมืองหรือไม่",
+                            "NAME_HOUSING_TYPE":  "ประเภทที่อยู่อาศัย"
+                        },
+    "minimum_payload_template_th":  {
+                                        "รหัสลูกค้า":  999999,
+                                        "ประเภทสินเชื่อ":  "Cash loans",
+                                        "เพศ":  "F",
+                                        "มีรถยนต์":  "N",
+                                        "มีอสังหาริมทรัพย์":  "Y",
+                                        "จำนวนบุตร":  1,
+                                        "รายได้รวม":  180000,
+                                        "วงเงินสินเชื่อ":  450000,
+                                        "ค่างวดรายงวด":  23000,
+                                        "ราคาสินค้า":  450000,
+                                        "ผู้ติดตามตอนยื่นกู้":  "Unaccompanied",
+                                        "ประเภทอาชีพรายได้":  "Working",
+                                        "ระดับการศึกษา":  "Higher education",
+                                        "สถานภาพครอบครัว":  "Married",
+                                        "ประเภทที่อยู่อาศัย":  "House / apartment",
+                                        "สัดส่วนประชากรภูมิภาค":  0.0188,
+                                        "อายุวันเกิด":  -14000,
+                                        "อายุงานวัน":  -3000,
+                                        "วันเปลี่ยนทะเบียนบ้าน":  -4000,
+                                        "วันเปลี่ยนเอกสาร":  -2000,
+                                        "อายุรถ":  5,
+                                        "มีมือถือ":  1,
+                                        "มีเบอร์ที่ทำงาน":  1,
+                                        "มีโทรศัพท์บ้าน":  0,
+                                        "มีมือถือที่ติดต่อได้":  1,
+                                        "มีโทรศัพท์":  1,
+                                        "มีอีเมล":  0,
+                                        "อาชีพ":  "Laborers",
+                                        "จำนวนสมาชิกครอบครัว":  3,
+                                        "เรตติ้งภูมิภาคลูกค้า":  2,
+                                        "เรตติ้งภูมิภาคพร้อมเมือง":  2,
+                                        "วันในสัปดาห์ที่ยื่น":  "WEDNESDAY",
+                                        "ชั่วโมงที่ยื่น":  10,
+                                        "ประเภทองค์กร":  "Business Entity Type 3",
+                                        "คะแนนภายนอก1":  0.72,
+                                        "คะแนนภายนอก2":  0.63,
+                                        "คะแนนภายนอก3":  0.51,
+                                        "จำนวนสังคมวงใกล้ชิด30วัน":  2,
+                                        "หนี้เสียวงใกล้ชิด30วัน":  0,
+                                        "จำนวนสังคมวงใกล้ชิด60วัน":  2,
+                                        "หนี้เสียวงใกล้ชิด60วัน":  0,
+                                        "วันเปลี่ยนเบอร์ล่าสุด":  -1000,
+                                        "จำนวนขอเครดิตบูโรรายเดือน":  0,
+                                        "จำนวนขอเครดิตบูโรปีนี้":  1
+                                    },
+    "minimum_payload_template_en":  {
+                                        "SK_ID_CURR":  999999,
+                                        "NAME_CONTRACT_TYPE":  "Cash loans",
+                                        "CODE_GENDER":  "F",
+                                        "FLAG_OWN_CAR":  "N",
+                                        "FLAG_OWN_REALTY":  "Y",
+                                        "CNT_CHILDREN":  1,
+                                        "AMT_INCOME_TOTAL":  180000,
+                                        "AMT_CREDIT":  450000,
+                                        "AMT_ANNUITY":  23000,
+                                        "AMT_GOODS_PRICE":  450000,
+                                        "NAME_TYPE_SUITE":  "Unaccompanied",
+                                        "NAME_INCOME_TYPE":  "Working",
+                                        "NAME_EDUCATION_TYPE":  "Higher education",
+                                        "NAME_FAMILY_STATUS":  "Married",
+                                        "NAME_HOUSING_TYPE":  "House / apartment",
+                                        "REGION_POPULATION_RELATIVE":  0.0188,
+                                        "DAYS_BIRTH":  -14000,
+                                        "DAYS_EMPLOYED":  -3000,
+                                        "DAYS_REGISTRATION":  -4000,
+                                        "DAYS_ID_PUBLISH":  -2000,
+                                        "OWN_CAR_AGE":  5,
+                                        "FLAG_MOBIL":  1,
+                                        "FLAG_EMP_PHONE":  1,
+                                        "FLAG_WORK_PHONE":  0,
+                                        "FLAG_CONT_MOBILE":  1,
+                                        "FLAG_PHONE":  1,
+                                        "FLAG_EMAIL":  0,
+                                        "OCCUPATION_TYPE":  "Laborers",
+                                        "CNT_FAM_MEMBERS":  3,
+                                        "REGION_RATING_CLIENT":  2,
+                                        "REGION_RATING_CLIENT_W_CITY":  2,
+                                        "WEEKDAY_APPR_PROCESS_START":  "WEDNESDAY",
+                                        "HOUR_APPR_PROCESS_START":  10,
+                                        "ORGANIZATION_TYPE":  "Business Entity Type 3",
+                                        "EXT_SOURCE_1":  0.72,
+                                        "EXT_SOURCE_2":  0.63,
+                                        "EXT_SOURCE_3":  0.51,
+                                        "OBS_30_CNT_SOCIAL_CIRCLE":  2,
+                                        "DEF_30_CNT_SOCIAL_CIRCLE":  0,
+                                        "OBS_60_CNT_SOCIAL_CIRCLE":  2,
+                                        "DEF_60_CNT_SOCIAL_CIRCLE":  0,
+                                        "DAYS_LAST_PHONE_CHANGE":  -1000,
+                                        "AMT_REQ_CREDIT_BUREAU_MON":  0,
+                                        "AMT_REQ_CREDIT_BUREAU_YEAR":  1
+                                    },
+    "minimum_attributes":  [
+                               {
+                                   "th":  "รหัสลูกค้า",
+                                   "en":  "SK_ID_CURR",
+                                   "type":  "int",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  999999
+                               },
+                               {
+                                   "th":  "ประเภทสินเชื่อ",
+                                   "en":  "NAME_CONTRACT_TYPE",
+                                   "type":  "category",
+                                   "required":  true,
+                                   "ui_control":  "select",
+                                   "options":  [
+                                                   "Cash loans",
+                                                   "Revolving loans"
+                                               ],
+                                   "example":  "Cash loans"
+                               },
+                               {
+                                   "th":  "เพศ",
+                                   "en":  "CODE_GENDER",
+                                   "type":  "category",
+                                   "required":  true,
+                                   "ui_control":  "select",
+                                   "options":  [
+                                                   "F",
+                                                   "M"
+                                               ],
+                                   "example":  "F"
+                               },
+                               {
+                                   "th":  "มีรถยนต์",
+                                   "en":  "FLAG_OWN_CAR",
+                                   "type":  "category",
+                                   "required":  true,
+                                   "ui_control":  "select",
+                                   "options":  [
+                                                   "N",
+                                                   "Y"
+                                               ],
+                                   "example":  "N"
+                               },
+                               {
+                                   "th":  "มีอสังหาริมทรัพย์",
+                                   "en":  "FLAG_OWN_REALTY",
+                                   "type":  "category",
+                                   "required":  true,
+                                   "ui_control":  "select",
+                                   "options":  [
+                                                   "N",
+                                                   "Y"
+                                               ],
+                                   "example":  "Y"
+                               },
+                               {
+                                   "th":  "จำนวนบุตร",
+                                   "en":  "CNT_CHILDREN",
+                                   "type":  "int",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  1
+                               },
+                               {
+                                   "th":  "รายได้รวม",
+                                   "en":  "AMT_INCOME_TOTAL",
+                                   "type":  "float",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  180000.0
+                               },
+                               {
+                                   "th":  "วงเงินสินเชื่อ",
+                                   "en":  "AMT_CREDIT",
+                                   "type":  "float",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  450000.0
+                               },
+                               {
+                                   "th":  "ค่างวดรายงวด",
+                                   "en":  "AMT_ANNUITY",
+                                   "type":  "float",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  23000.0
+                               },
+                               {
+                                   "th":  "ราคาสินค้า",
+                                   "en":  "AMT_GOODS_PRICE",
+                                   "type":  "float",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  450000.0
+                               },
+                               {
+                                   "th":  "ผู้ติดตามตอนยื่นกู้",
+                                   "en":  "NAME_TYPE_SUITE",
+                                   "type":  "category",
+                                   "required":  true,
+                                   "ui_control":  "select",
+                                   "options":  [
+                                                   "Children",
+                                                   "Family",
+                                                   "Group of people",
+                                                   "Other_A",
+                                                   "Other_B",
+                                                   "Spouse, partner",
+                                                   "Unaccompanied"
+                                               ],
+                                   "example":  "Unaccompanied"
+                               },
+                               {
+                                   "th":  "ประเภทอาชีพรายได้",
+                                   "en":  "NAME_INCOME_TYPE",
+                                   "type":  "category",
+                                   "required":  true,
+                                   "ui_control":  "select",
+                                   "options":  [
+                                                   "Businessman",
+                                                   "Commercial associate",
+                                                   "Pensioner",
+                                                   "State servant",
+                                                   "Working"
+                                               ],
+                                   "example":  "Working"
+                               },
+                               {
+                                   "th":  "ระดับการศึกษา",
+                                   "en":  "NAME_EDUCATION_TYPE",
+                                   "type":  "category",
+                                   "required":  true,
+                                   "ui_control":  "select",
+                                   "options":  [
+                                                   "Academic degree",
+                                                   "Higher education",
+                                                   "Incomplete higher",
+                                                   "Lower secondary",
+                                                   "Secondary / secondary special"
+                                               ],
+                                   "example":  "Higher education"
+                               },
+                               {
+                                   "th":  "สถานภาพครอบครัว",
+                                   "en":  "NAME_FAMILY_STATUS",
+                                   "type":  "category",
+                                   "required":  true,
+                                   "ui_control":  "select",
+                                   "options":  [
+                                                   "Civil marriage",
+                                                   "Married",
+                                                   "Separated",
+                                                   "Single / not married",
+                                                   "Widow"
+                                               ],
+                                   "example":  "Married"
+                               },
+                               {
+                                   "th":  "ประเภทที่อยู่อาศัย",
+                                   "en":  "NAME_HOUSING_TYPE",
+                                   "type":  "category",
+                                   "required":  true,
+                                   "ui_control":  "select",
+                                   "options":  [
+                                                   "Co-op apartment",
+                                                   "House / apartment",
+                                                   "Municipal apartment",
+                                                   "Office apartment",
+                                                   "Rented apartment",
+                                                   "With parents"
+                                               ],
+                                   "example":  "House / apartment"
+                               },
+                               {
+                                   "th":  "สัดส่วนประชากรภูมิภาค",
+                                   "en":  "REGION_POPULATION_RELATIVE",
+                                   "type":  "float",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  0.0188
+                               },
+                               {
+                                   "th":  "อายุวันเกิด",
+                                   "en":  "DAYS_BIRTH",
+                                   "type":  "int",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  -14000
+                               },
+                               {
+                                   "th":  "อายุงานวัน",
+                                   "en":  "DAYS_EMPLOYED",
+                                   "type":  "int",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  -3000
+                               },
+                               {
+                                   "th":  "วันเปลี่ยนทะเบียนบ้าน",
+                                   "en":  "DAYS_REGISTRATION",
+                                   "type":  "float",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  -4000.0
+                               },
+                               {
+                                   "th":  "วันเปลี่ยนเอกสาร",
+                                   "en":  "DAYS_ID_PUBLISH",
+                                   "type":  "int",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  -2000
+                               },
+                               {
+                                   "th":  "อายุรถ",
+                                   "en":  "OWN_CAR_AGE",
+                                   "type":  "float",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  5.0
+                               },
+                               {
+                                   "th":  "มีมือถือ",
+                                   "en":  "FLAG_MOBIL",
+                                   "type":  "int",
+                                   "required":  true,
+                                   "ui_control":  "radio_or_select",
+                                   "options":  [
+                                                   0,
+                                                   1
+                                               ],
+                                   "example":  1
+                               },
+                               {
+                                   "th":  "มีเบอร์ที่ทำงาน",
+                                   "en":  "FLAG_EMP_PHONE",
+                                   "type":  "int",
+                                   "required":  true,
+                                   "ui_control":  "radio_or_select",
+                                   "options":  [
+                                                   0,
+                                                   1
+                                               ],
+                                   "example":  1
+                               },
+                               {
+                                   "th":  "มีโทรศัพท์บ้าน",
+                                   "en":  "FLAG_WORK_PHONE",
+                                   "type":  "int",
+                                   "required":  true,
+                                   "ui_control":  "radio_or_select",
+                                   "options":  [
+                                                   0,
+                                                   1
+                                               ],
+                                   "example":  0
+                               },
+                               {
+                                   "th":  "มีมือถือที่ติดต่อได้",
+                                   "en":  "FLAG_CONT_MOBILE",
+                                   "type":  "int",
+                                   "required":  true,
+                                   "ui_control":  "radio_or_select",
+                                   "options":  [
+                                                   0,
+                                                   1
+                                               ],
+                                   "example":  1
+                               },
+                               {
+                                   "th":  "มีโทรศัพท์",
+                                   "en":  "FLAG_PHONE",
+                                   "type":  "int",
+                                   "required":  true,
+                                   "ui_control":  "radio_or_select",
+                                   "options":  [
+                                                   0,
+                                                   1
+                                               ],
+                                   "example":  1
+                               },
+                               {
+                                   "th":  "มีอีเมล",
+                                   "en":  "FLAG_EMAIL",
+                                   "type":  "int",
+                                   "required":  true,
+                                   "ui_control":  "radio_or_select",
+                                   "options":  [
+                                                   0,
+                                                   1
+                                               ],
+                                   "example":  0
+                               },
+                               {
+                                   "th":  "อาชีพ",
+                                   "en":  "OCCUPATION_TYPE",
+                                   "type":  "category",
+                                   "required":  true,
+                                   "ui_control":  "select",
+                                   "options":  [
+                                                   "Accountants",
+                                                   "Cleaning staff",
+                                                   "Cooking staff",
+                                                   "Core staff",
+                                                   "Drivers",
+                                                   "High skill tech staff",
+                                                   "HR staff",
+                                                   "IT staff",
+                                                   "Laborers",
+                                                   "Low-skill Laborers",
+                                                   "Managers",
+                                                   "Medicine staff",
+                                                   "Private service staff",
+                                                   "Realty agents",
+                                                   "Sales staff",
+                                                   "Secretaries",
+                                                   "Security staff",
+                                                   "Waiters/barmen staff"
+                                               ],
+                                   "example":  "Laborers"
+                               },
+                               {
+                                   "th":  "จำนวนสมาชิกครอบครัว",
+                                   "en":  "CNT_FAM_MEMBERS",
+                                   "type":  "float",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  3.0
+                               },
+                               {
+                                   "th":  "เรตติ้งภูมิภาคลูกค้า",
+                                   "en":  "REGION_RATING_CLIENT",
+                                   "type":  "int",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  2
+                               },
+                               {
+                                   "th":  "เรตติ้งภูมิภาคพร้อมเมือง",
+                                   "en":  "REGION_RATING_CLIENT_W_CITY",
+                                   "type":  "int",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  2
+                               },
+                               {
+                                   "th":  "วันในสัปดาห์ที่ยื่น",
+                                   "en":  "WEEKDAY_APPR_PROCESS_START",
+                                   "type":  "category",
+                                   "required":  true,
+                                   "ui_control":  "select",
+                                   "options":  [
+                                                   "FRIDAY",
+                                                   "MONDAY",
+                                                   "SATURDAY",
+                                                   "SUNDAY",
+                                                   "THURSDAY",
+                                                   "TUESDAY",
+                                                   "WEDNESDAY"
+                                               ],
+                                   "example":  "WEDNESDAY"
+                               },
+                               {
+                                   "th":  "ชั่วโมงที่ยื่น",
+                                   "en":  "HOUR_APPR_PROCESS_START",
+                                   "type":  "int",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  10
+                               },
+                               {
+                                   "th":  "ประเภทองค์กร",
+                                   "en":  "ORGANIZATION_TYPE",
+                                   "type":  "category",
+                                   "required":  true,
+                                   "ui_control":  "select",
+                                   "options":  [
+                                                   "Advertising",
+                                                   "Agriculture",
+                                                   "Bank",
+                                                   "Business Entity Type 1",
+                                                   "Business Entity Type 2",
+                                                   "Business Entity Type 3",
+                                                   "Cleaning",
+                                                   "Construction",
+                                                   "Culture",
+                                                   "Electricity",
+                                                   "Emergency",
+                                                   "Government",
+                                                   "Hotel",
+                                                   "Housing",
+                                                   "Industry: type 1",
+                                                   "Industry: type 10",
+                                                   "Industry: type 11",
+                                                   "Industry: type 12",
+                                                   "Industry: type 13",
+                                                   "Industry: type 2",
+                                                   "Industry: type 3",
+                                                   "Industry: type 4",
+                                                   "Industry: type 5",
+                                                   "Industry: type 6",
+                                                   "Industry: type 7",
+                                                   "Industry: type 8",
+                                                   "Industry: type 9",
+                                                   "Insurance",
+                                                   "Kindergarten",
+                                                   "Legal Services",
+                                                   "Medicine",
+                                                   "Military",
+                                                   "Mobile",
+                                                   "Other",
+                                                   "Police",
+                                                   "Postal",
+                                                   "Realtor",
+                                                   "Religion",
+                                                   "Restaurant",
+                                                   "School",
+                                                   "Security",
+                                                   "Security Ministries",
+                                                   "Self-employed",
+                                                   "Services",
+                                                   "Telecom",
+                                                   "Trade: type 1",
+                                                   "Trade: type 2",
+                                                   "Trade: type 3",
+                                                   "Trade: type 4",
+                                                   "Trade: type 6",
+                                                   "Trade: type 7",
+                                                   "Transport: type 1",
+                                                   "Transport: type 2",
+                                                   "Transport: type 3",
+                                                   "Transport: type 4",
+                                                   "University",
+                                                   "XNA"
+                                               ],
+                                   "example":  "Business Entity Type 3"
+                               },
+                               {
+                                   "th":  "คะแนนภายนอก1",
+                                   "en":  "EXT_SOURCE_1",
+                                   "type":  "float",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  0.7
+                               },
+                               {
+                                   "th":  "คะแนนภายนอก2",
+                                   "en":  "EXT_SOURCE_2",
+                                   "type":  "float",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  0.6
+                               },
+                               {
+                                   "th":  "คะแนนภายนอก3",
+                                   "en":  "EXT_SOURCE_3",
+                                   "type":  "float",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  0.5
+                               },
+                               {
+                                   "th":  "จำนวนสังคมวงใกล้ชิด30วัน",
+                                   "en":  "OBS_30_CNT_SOCIAL_CIRCLE",
+                                   "type":  "float",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  2.0
+                               },
+                               {
+                                   "th":  "หนี้เสียวงใกล้ชิด30วัน",
+                                   "en":  "DEF_30_CNT_SOCIAL_CIRCLE",
+                                   "type":  "float",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  0.0
+                               },
+                               {
+                                   "th":  "จำนวนสังคมวงใกล้ชิด60วัน",
+                                   "en":  "OBS_60_CNT_SOCIAL_CIRCLE",
+                                   "type":  "float",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  2.0
+                               },
+                               {
+                                   "th":  "หนี้เสียวงใกล้ชิด60วัน",
+                                   "en":  "DEF_60_CNT_SOCIAL_CIRCLE",
+                                   "type":  "float",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  0.0
+                               },
+                               {
+                                   "th":  "วันเปลี่ยนเบอร์ล่าสุด",
+                                   "en":  "DAYS_LAST_PHONE_CHANGE",
+                                   "type":  "float",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  -1000.0
+                               },
+                               {
+                                   "th":  "จำนวนขอเครดิตบูโรรายเดือน",
+                                   "en":  "AMT_REQ_CREDIT_BUREAU_MON",
+                                   "type":  "float",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  0.0
+                               },
+                               {
+                                   "th":  "จำนวนขอเครดิตบูโรปีนี้",
+                                   "en":  "AMT_REQ_CREDIT_BUREAU_YEAR",
+                                   "type":  "float",
+                                   "required":  true,
+                                   "ui_control":  "number_input",
+                                   "options":  [
+
+                                               ],
+                                   "example":  1.0
+                               }
+                           ],
+    "optional_recommended_en":  [
+                                    "REGION_POPULATION_RELATIVE",
+                                    "DAYS_REGISTRATION",
+                                    "DAYS_ID_PUBLISH",
+                                    "OWN_CAR_AGE",
+                                    "OCCUPATION_TYPE",
+                                    "REGION_RATING_CLIENT",
+                                    "REGION_RATING_CLIENT_W_CITY",
+                                    "WEEKDAY_APPR_PROCESS_START",
+                                    "HOUR_APPR_PROCESS_START",
+                                    "ORGANIZATION_TYPE",
+                                    "EXT_SOURCE_1",
+                                    "TOTALAREA_MODE",
+                                    "OBS_30_CNT_SOCIAL_CIRCLE",
+                                    "DEF_30_CNT_SOCIAL_CIRCLE",
+                                    "OBS_60_CNT_SOCIAL_CIRCLE",
+                                    "DEF_60_CNT_SOCIAL_CIRCLE",
+                                    "DAYS_LAST_PHONE_CHANGE",
+                                    "AMT_REQ_CREDIT_BUREAU_MON",
+                                    "AMT_REQ_CREDIT_BUREAU_YEAR"
+                                ]
+}

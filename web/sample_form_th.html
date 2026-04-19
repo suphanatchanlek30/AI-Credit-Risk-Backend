@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ประเมินความเสี่ยงเครดิต</title>
+  <style>
+    body { font-family: Tahoma, sans-serif; margin: 24px; max-width: 760px; }
+    .row { display: grid; grid-template-columns: 260px 1fr; gap: 8px; margin-bottom: 8px; }
+    input, select { padding: 8px; }
+    button { padding: 10px 14px; }
+    pre { background: #f5f5f5; padding: 12px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>ทดสอบเรียก FastAPI</h1>
+  <p>ฟอร์มนี้ส่งข้อมูลไปที่ <code>POST /predict</code> โดยใช้ key ภาษาไทย</p>
+
+  <div class="row"><label>รหัสลูกค้า</label><input id="custId" value="999999"></div>
+  <div class="row">
+    <label>ประเภทสินเชื่อ</label>
+    <select id="contractType">
+      <option>Cash loans</option>
+      <option>Revolving loans</option>
+    </select>
+  </div>
+  <div class="row">
+    <label>เพศ</label>
+    <select id="gender"><option>F</option><option>M</option></select>
+  </div>
+  <div class="row"><label>รายได้รวม</label><input id="income" value="180000"></div>
+  <div class="row"><label>วงเงินสินเชื่อ</label><input id="credit" value="450000"></div>
+  <div class="row"><label>ค่างวดรายงวด</label><input id="annuity" value="23000"></div>
+  <div class="row"><label>ราคาสินค้า</label><input id="goodsPrice" value="450000"></div>
+  <div class="row"><label>จำนวนบุตร</label><input id="children" value="1"></div>
+  <div class="row"><label>จำนวนสมาชิกครอบครัว</label><input id="famMembers" value="3"></div>
+  <div class="row"><label>อายุวันเกิด</label><input id="daysBirth" value="-14000"></div>
+  <div class="row"><label>อายุงานวัน</label><input id="daysEmp" value="-3000"></div>
+  <div class="row"><label>threshold</label><input id="threshold" value="0.5"></div>
+
+  <button onclick="submitPredict()">ประเมิน</button>
+  <h3>ผลลัพธ์</h3>
+  <pre id="result">-</pre>
+
+  <script>
+    async function submitPredict() {
+      const payload = {
+        payload: {
+          "รหัสลูกค้า": Number(document.getElementById("custId").value),
+          "ประเภทสินเชื่อ": document.getElementById("contractType").value,
+          "เพศ": document.getElementById("gender").value,
+          "รายได้รวม": Number(document.getElementById("income").value),
+          "วงเงินสินเชื่อ": Number(document.getElementById("credit").value),
+          "ค่างวดรายงวด": Number(document.getElementById("annuity").value),
+          "ราคาสินค้า": Number(document.getElementById("goodsPrice").value),
+          "จำนวนบุตร": Number(document.getElementById("children").value),
+          "จำนวนสมาชิกครอบครัว": Number(document.getElementById("famMembers").value),
+          "อายุวันเกิด": Number(document.getElementById("daysBirth").value),
+          "อายุงานวัน": Number(document.getElementById("daysEmp").value)
+        },
+        threshold: Number(document.getElementById("threshold").value)
+      };
+
+      const res = await fetch("http://127.0.0.1:8000/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const text = await res.text();
+      document.getElementById("result").textContent = text;
+    }
+  </script>
+</body>
+</html>

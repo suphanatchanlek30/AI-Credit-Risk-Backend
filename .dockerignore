@@ -1,0 +1,14 @@
+.git
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+artifacts
+input
+*.ipynb
+only_application_pred.csv
+legacy
+tests
+docs
