@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
+from app.api.v1 import router as api_v1_router
 from app.db.repository import create_prediction_log, list_prediction_logs
 from app.db.session import create_tables, db_ping, get_db
 from app.ml.model_bundle import load_bundle
@@ -52,6 +53,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(api_v1_router)
 
 
 class PredictRequest(BaseModel):

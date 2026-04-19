@@ -258,3 +258,28 @@ powershell -ExecutionPolicy Bypass -File .\scripts\test_api_py.ps1
 4. `docker compose` ใช้ไม่ได้
 - ลอง `docker-compose`
 - สคริปต์ที่ให้รองรับสองแบบแล้ว
+
+---
+
+## 12) API v1 (Auth + Dashboard + Assessment + Admin + Seed)
+
+หลังอัปเดตล่าสุด มี endpoint เพิ่มภายใต้ `/api/v1` ครบตามโครงออกแบบ เช่น:
+- `/api/v1/auth/*`
+- `/api/v1/dashboard/*`
+- `/api/v1/assessments/*`
+- `/api/v1/admin/*`
+
+### Seed ระบบครั้งแรก
+```powershell
+py scripts/seed_system.py --version v1.0.0 --with-demo true
+```
+
+### เทส API v1 แบบครบ flow
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\test_api_v1.ps1
+```
+
+เอกสารสเปก:
+- `docs/API_SPEC.md`
+- `docs/DATABASE_DESIGN.md`
+- `docs/SEED_PLAN.md`

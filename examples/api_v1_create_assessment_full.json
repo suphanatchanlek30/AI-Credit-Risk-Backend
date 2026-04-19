@@ -1,0 +1,46 @@
+{
+  "applicantProfile": {
+    "firstName": "สมชาย",
+    "lastName": "ใจดี",
+    "nationalIdHash": "f7a2f2f39a6cbaf5f266f1f5838d6e2a8f79953f4bfa9e05f618d51a7b9fcb10",
+    "dateOfBirth": "1991-04-10",
+    "maritalStatus": "MARRIED",
+    "provinceCode": "10",
+    "district": "บางกะปิ",
+    "postalCode": "10240"
+  },
+  "employmentInfo": {
+    "occupationCode": "OFFICER",
+    "employmentType": "FULL_TIME",
+    "employerName": "ABC Company",
+    "jobTenureMonths": 62,
+    "monthlyIncome": 45000,
+    "additionalIncome": 5000
+  },
+  "financialInfo": {
+    "requestedLoanAmount": 850000,
+    "loanTermMonths": 60,
+    "loanPurposeCode": "HOME_PURCHASE",
+    "monthlyDebtPayment": 12500,
+    "existingLoanBalance": 285000
+  },
+  "debtInfos": [
+    {
+      "debtType": "PERSONAL_LOAN",
+      "creditorName": "Bank A",
+      "outstandingAmount": 180000,
+      "monthlyPayment": 8500,
+      "delinquentDays": 0,
+      "isDefaulted": false
+    },
+    {
+      "debtType": "CREDIT_CARD",
+      "creditorName": "Bank B",
+      "outstandingAmount": 105000,
+      "monthlyPayment": 4000,
+      "delinquentDays": 0,
+      "isDefaulted": false
+    }
+  ],
+  "note": "ลูกค้าต้องการวงเงินเพื่อซื้อบ้าน"
+}
