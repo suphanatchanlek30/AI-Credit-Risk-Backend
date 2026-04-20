@@ -176,7 +176,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\docker_down.ps1
 pgAdmin:
 - [http://127.0.0.1:5050](http://127.0.0.1:5050)
 - user: `admin@example.com`
-- pass: `admin1234`
+- pass: `Admin1234!`
 
 ---
 
