@@ -49,6 +49,7 @@
 8. `POST /api/v1/assessments/{id}/submit`
 9. `GET /api/v1/assessments/{id}/result`
 10. `GET /api/v1/assessments?page=1&pageSize=10`
+11. `POST /api/v1/predict` (โมเดลตรงแบบ v1)
 
 ---
 
@@ -115,7 +116,19 @@ Header ทุกเส้น: `Authorization: Bearer <accessToken>`
 
 ---
 
-## 7) Assessment APIs
+## 7) Model / Input APIs (v1)
+
+### GET `/api/v1/model-info`
+### GET `/api/v1/input-template`
+### GET `/api/v1/input-catalog`
+### GET `/api/v1/input-summary`
+### POST `/api/v1/predict`
+### GET `/api/v1/predictions`
+### GET `/api/v1/predictions/{predictionId}`
+
+---
+
+## 8) Assessment APIs
 
 ### GET `/api/v1/assessments/form-options`
 ใช้โหลด dropdown ทั้งหมดสำหรับหน้าแบบฟอร์ม
@@ -175,6 +188,10 @@ Response สำคัญ:
 
 ### POST `/api/v1/assessments/calculate`
 คำนวณ preview score โดยยังไม่ submit
+- ฝั่ง backend จะ “แปลงฟอร์ม” ให้เป็นฟีเจอร์ของโมเดล Home Credit แล้วค่อยยิงโมเดล
+- รองรับการส่ง field โมเดลจริงเป็น key อังกฤษแทรกมาใน nested section ได้ (เช่น `CODE_GENDER`, `AMT_INCOME_TOTAL`) เพื่อให้โมเดลได้ค่าจริงมากขึ้น
+- ตัวอย่าง: ส่ง `gender: "M"` ใน `applicantProfile` จะถูก map ไปเป็น `CODE_GENDER`
+- ผลลัพธ์ `scoreBreakdown` / `riskFactors` / `recommendations` จะถูกสร้างจาก logic เดียวกับตอน `submit` เพื่อให้ “ผลก่อนบันทึก” และ “ผลหลังบันทึก” ตรงกัน
 
 ### PUT `/api/v1/assessments/{assessmentId}`
 อัปเดต draft
@@ -205,7 +222,7 @@ Response สำคัญ:
 
 ---
 
-## 8) Admin APIs
+## 9) Admin APIs
 
 ### POST `/api/v1/admin/seed`
 Body:
@@ -230,14 +247,14 @@ Body:
 
 ---
 
-## 9) System APIs
+## 10) System APIs
 
 ### GET `/api/v1/health`
 ### GET `/api/v1/db-health`
 
 ---
 
-## 10) Legacy APIs (ยังใช้ได้)
+## 11) Legacy APIs (ยังใช้ได้)
 
 ระบบยังมี endpoint รุ่นเดิมสำหรับโมเดลเดิม:
 - `GET /health`
@@ -248,23 +265,24 @@ Body:
 - `GET /input-summary`
 - `POST /predict`
 - `GET /predictions`
+- `GET /predictions/{predictionId}`
 
 ถ้า frontend ใหม่ แนะนำใช้ `/api/v1/*` เป็นหลัก
 
 ---
 
-## 11) Frontend Integration Notes
+## 12) Frontend Integration Notes
 
 1. เก็บ `accessToken` ไว้ใน memory (state/store) และแนบ Bearer ทุกครั้ง
 2. ทำ interceptor:
    - ถ้า 401 -> เรียก `/api/v1/auth/refresh` -> retry request เดิม
 3. list หน้า history ใช้ `page/pageSize` รูปแบบเดียวกัน
 4. ฟอร์มให้ดึง options จาก `/api/v1/assessments/form-options` ทุกครั้งตอนเข้า page
-5. หลัง create assessment ให้เก็บ `assessmentId` แล้วใช้ต่อกับ submit/result/detail
+5. ถ้าใช้โมเดลตรงผ่าน `/api/v1/predict` หรือ `/predict` ให้เก็บ `requestId` จาก response แล้วใช้ `GET /api/v1/predictions/{predictionId}` หรือ `GET /predictions/{predictionId}` เพื่อโหลดรายละเอียดที่บันทึก
 
 ---
 
-## 12) Minimal cURL Examples
+## 13) Minimal cURL Examples
 
 ### Login
 ```bash
@@ -289,7 +307,7 @@ curl -X POST "http://127.0.0.1:8000/api/v1/assessments" \
 
 ---
 
-## 13) Ready-to-Use Example Files
+## 14) Ready-to-Use Example Files
 
 - `examples/api_v1_seed.json`
 - `examples/api_v1_login_admin.json`

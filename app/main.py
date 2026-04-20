@@ -6,13 +6,20 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.api.v1 import router as api_v1_router
-from app.db.repository import create_prediction_log, list_prediction_logs
+from app.core.response import err
+from app.db.repository import (
+    create_prediction_log,
+    get_prediction_log_by_id,
+    list_prediction_logs,
+)
 from app.db.session import create_tables, db_ping, get_db
 from app.ml.model_bundle import load_bundle
 from app.ml.preprocessing import preprocess_for_inference, sanitize_payload
@@ -54,6 +61,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(api_v1_router)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
+    code_map = {
+        400: "BAD_REQUEST",
+        401: "UNAUTHORIZED",
+        403: "FORBIDDEN",
+        404: "NOT_FOUND",
+        409: "CONFLICT",
+        422: "VALIDATION_ERROR",
+    }
+    payload = err(
+        message=str(exc.detail),
+        error_code=code_map.get(exc.status_code, "HTTP_ERROR"),
+        errors=[],
+    )
+    return JSONResponse(status_code=exc.status_code, content=payload)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
+    errors = []
+    for e in exc.errors():
+        loc = ".".join(str(x) for x in e.get("loc", []))
+        errors.append({"field": loc, "detail": e.get("msg", "invalid value")})
+    payload = err(
+        message="Validation failed",
+        error_code="VALIDATION_ERROR",
+        errors=errors,
+    )
+    return JSONResponse(status_code=422, content=payload)
 
 
 class PredictRequest(BaseModel):
@@ -203,6 +242,23 @@ def prediction_logs(limit: int = 20, db: Session = Depends(get_db)) -> dict[str,
     }
 
 
+@app.get("/predictions/{prediction_id}")
+def prediction_log_detail(prediction_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+    row = get_prediction_log_by_id(db, prediction_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Prediction not found")
+    return {
+        "id": row.id,
+        "created_at": row.created_at.isoformat(),
+        "model_version": row.model_version,
+        "threshold": row.threshold,
+        "client_ip": row.client_ip,
+        "request_payload": row.request_payload,
+        "translated_payload": row.translated_payload,
+        "predictions": row.predictions,
+    }
+
+
 @app.post("/predict", response_model=PredictResponse)
 def predict(
     req: PredictRequest,
@@ -255,6 +311,7 @@ def predict(
         translated_payload=translated_rows,
         predictions=predictions,
     )
+
     for pred in predictions:
         pred["request_id"] = row.id
 

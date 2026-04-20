@@ -6,12 +6,13 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.response import ok
 from app.core.scoring import calculate_risk
+from app.core.prediction_service import PredictionService
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -37,6 +38,7 @@ from app.db.models import (
     Role,
     User,
 )
+from app.db.repository import create_prediction_log, get_prediction_log_by_id, list_prediction_logs
 from app.db.session import get_db
 from app.seed.bootstrap import run_seed
 
@@ -99,6 +101,7 @@ class LogoutRequest(BaseModel):
 
 
 class ApplicantProfilePayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
     firstName: str
     lastName: str
     nationalIdHash: str | None = None
@@ -110,6 +113,7 @@ class ApplicantProfilePayload(BaseModel):
 
 
 class EmploymentPayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
     occupationCode: str
     employmentType: str
     employerName: str | None = None
@@ -119,6 +123,7 @@ class EmploymentPayload(BaseModel):
 
 
 class FinancialPayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
     requestedLoanAmount: float = Field(gt=0)
     loanTermMonths: int = Field(ge=6, le=120)
     loanPurposeCode: str
@@ -127,6 +132,7 @@ class FinancialPayload(BaseModel):
 
 
 class DebtPayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
     debtType: str
     creditorName: str | None = None
     outstandingAmount: float = Field(ge=0)
@@ -136,6 +142,7 @@ class DebtPayload(BaseModel):
 
 
 class AssessmentUpsertRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
     applicantProfile: ApplicantProfilePayload
     employmentInfo: EmploymentPayload
     financialInfo: FinancialPayload
@@ -148,6 +155,11 @@ class SeedRequest(BaseModel):
     includeDummyAssessments: bool = True
 
 
+class PredictModelRequest(BaseModel):
+    payload: dict[str, Any] | list[dict[str, Any]]
+    threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
 def _age_years(dob: date) -> int:
     today = date.today()
     return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
@@ -156,6 +168,394 @@ def _age_years(dob: date) -> int:
 def _assessment_no(db: Session) -> str:
     count = db.scalar(select(func.count(LoanAssessment.id))) or 0
     return f"CR-{date.today().year}-{count + 1:06d}"
+
+
+def _days_between(a: date, b: date) -> int:
+    # Home Credit day features are negative numbers counting days before "today"
+    return -abs((b - a).days)
+
+
+def _assessment_to_model_payload(req: AssessmentUpsertRequest, artifacts: Any) -> dict[str, Any]:
+    """
+    Transform Assessment form payload into a Home Credit (application) model input payload.
+
+    Strategy:
+    - Allow frontend to optionally include real model feature keys anywhere in nested sections.
+      (We set extra='allow' on pydantic models, so these extra keys are preserved.)
+    - Flatten the request and copy any keys that match model raw feature columns.
+    - Derive a minimal but meaningful set of core model features from form fields.
+
+    This is a proof-of-concept mapper: it aims to populate as many *valid* model features as possible
+    without inventing data that the form does not collect.
+    """
+    # Flatten full request (including any extra keys) and pass through any already-provided model keys.
+    raw = req.model_dump(mode="python")
+    flat = PredictionService(model=None, artifacts=artifacts).flatten_payload(raw)  # type: ignore[arg-type]
+    model_payload: dict[str, Any] = {}
+
+    raw_cols = set(getattr(artifacts, "raw_feature_columns", []) or [])
+    for k, v in flat.items():
+        if k in raw_cols:
+            model_payload[k] = v
+
+    # Derivations from form fields (only if not already provided).
+    today = date.today()
+    if "DAYS_BIRTH" in raw_cols and "DAYS_BIRTH" not in model_payload:
+        model_payload["DAYS_BIRTH"] = _days_between(req.applicantProfile.dateOfBirth, today)
+
+    if "DAYS_EMPLOYED" in raw_cols and "DAYS_EMPLOYED" not in model_payload:
+        # Approximate: -30 days per month of tenure (good enough for PoC)
+        model_payload["DAYS_EMPLOYED"] = -int(max(0, req.employmentInfo.jobTenureMonths) * 30)
+
+    if "AMT_INCOME_TOTAL" in raw_cols and "AMT_INCOME_TOTAL" not in model_payload:
+        model_payload["AMT_INCOME_TOTAL"] = float(req.employmentInfo.monthlyIncome)
+
+    if "AMT_CREDIT" in raw_cols and "AMT_CREDIT" not in model_payload:
+        model_payload["AMT_CREDIT"] = float(req.financialInfo.requestedLoanAmount)
+
+    if "AMT_ANNUITY" in raw_cols and "AMT_ANNUITY" not in model_payload:
+        # If frontend didn't provide loan installment amount, approximate from amount/term.
+        term = max(1, int(req.financialInfo.loanTermMonths))
+        model_payload["AMT_ANNUITY"] = float(req.financialInfo.requestedLoanAmount) / term
+
+    if "AMT_GOODS_PRICE" in raw_cols and "AMT_GOODS_PRICE" not in model_payload:
+        # For cash loans, goods price is often same as credit amount (PoC fallback).
+        model_payload["AMT_GOODS_PRICE"] = float(req.financialInfo.requestedLoanAmount)
+
+    # Basic categorical mapping from assessment enums to Home Credit categories (best-effort).
+    if "NAME_CONTRACT_TYPE" in raw_cols and "NAME_CONTRACT_TYPE" not in model_payload:
+        model_payload["NAME_CONTRACT_TYPE"] = "Cash loans"
+
+    if "NAME_INCOME_TYPE" in raw_cols and "NAME_INCOME_TYPE" not in model_payload:
+        emp_type = str(req.employmentInfo.employmentType or "").upper()
+        if emp_type in {"UNEMPLOYED"}:
+            model_payload["NAME_INCOME_TYPE"] = "Unemployed"
+        elif emp_type in {"STUDENT"}:
+            model_payload["NAME_INCOME_TYPE"] = "Student"
+        elif emp_type:
+            model_payload["NAME_INCOME_TYPE"] = "Working"
+
+    if "NAME_FAMILY_STATUS" in raw_cols and "NAME_FAMILY_STATUS" not in model_payload and req.applicantProfile.maritalStatus:
+        ms = str(req.applicantProfile.maritalStatus).upper()
+        ms_map = {
+            "SINGLE": "Single / not married",
+            "MARRIED": "Married",
+            "DIVORCED": "Separated",
+            "WIDOWED": "Widow",
+        }
+        model_payload["NAME_FAMILY_STATUS"] = ms_map.get(ms)
+
+    # If frontend includes gender in extra keys, accept it. Otherwise leave missing.
+    if "CODE_GENDER" in raw_cols and "CODE_GENDER" not in model_payload:
+        gender = flat.get("gender") or flat.get("CODE_GENDER")
+        if isinstance(gender, str) and gender.strip():
+            g = gender.strip().upper()
+            if g in {"M", "F"}:
+                model_payload["CODE_GENDER"] = g
+
+    return model_payload
+
+
+def _assessment_rows_to_model_payload(
+    *,
+    profile: ApplicantProfile,
+    emp: ApplicantEmploymentInfo,
+    fin: ApplicantFinancialInfo,
+    artifacts: Any,
+) -> dict[str, Any]:
+    """
+    Transform persisted assessment rows into Home Credit model payload (best-effort).
+
+    Because the DB tables store only a subset of Home Credit features, we derive a minimal set.
+    """
+    raw_cols = set(getattr(artifacts, "raw_feature_columns", []) or [])
+    model_payload: dict[str, Any] = {}
+    today = date.today()
+
+    if "DAYS_BIRTH" in raw_cols:
+        model_payload["DAYS_BIRTH"] = _days_between(profile.date_of_birth, today)
+    if "DAYS_EMPLOYED" in raw_cols:
+        model_payload["DAYS_EMPLOYED"] = -int(max(0, emp.job_tenure_months) * 30)
+    if "AMT_INCOME_TOTAL" in raw_cols:
+        model_payload["AMT_INCOME_TOTAL"] = float(emp.monthly_income)
+    if "AMT_CREDIT" in raw_cols:
+        model_payload["AMT_CREDIT"] = float(fin.requested_loan_amount)
+    if "AMT_ANNUITY" in raw_cols:
+        term = max(1, int(fin.loan_term_months))
+        model_payload["AMT_ANNUITY"] = float(fin.requested_loan_amount) / term
+    if "AMT_GOODS_PRICE" in raw_cols:
+        model_payload["AMT_GOODS_PRICE"] = float(fin.requested_loan_amount)
+
+    if "NAME_CONTRACT_TYPE" in raw_cols:
+        model_payload.setdefault("NAME_CONTRACT_TYPE", "Cash loans")
+
+    if "NAME_FAMILY_STATUS" in raw_cols and profile.marital_status:
+        ms = str(profile.marital_status).upper()
+        ms_map = {
+            "SINGLE": "Single / not married",
+            "MARRIED": "Married",
+            "DIVORCED": "Separated",
+            "WIDOWED": "Widow",
+        }
+        model_payload.setdefault("NAME_FAMILY_STATUS", ms_map.get(ms))
+
+    if "NAME_INCOME_TYPE" in raw_cols and emp.employment_type:
+        emp_type = str(emp.employment_type).upper()
+        if emp_type in {"UNEMPLOYED"}:
+            model_payload.setdefault("NAME_INCOME_TYPE", "Unemployed")
+        elif emp_type in {"STUDENT"}:
+            model_payload.setdefault("NAME_INCOME_TYPE", "Student")
+        else:
+            model_payload.setdefault("NAME_INCOME_TYPE", "Working")
+
+    return model_payload
+
+
+def _risk_level_label(risk_level: str) -> str:
+    rl = (risk_level or "").upper()
+    if rl == "LOW":
+        return "ความเสี่ยงต่ำ"
+    if rl == "MEDIUM":
+        return "ความเสี่ยงปานกลาง"
+    return "ความเสี่ยงสูง"
+
+
+def _recommendation_label(recommendation_type: str) -> str:
+    rt = (recommendation_type or "").upper()
+    if rt == "APPROVE":
+        return "ควรอนุมัติ"
+    if rt == "REVIEW_MANUAL":
+        return "ควรตรวจสอบเพิ่มเติม"
+    return "ควรปฏิเสธ"
+
+
+def _score_breakdown_from_score_output(out: Any) -> list[dict[str, Any]]:
+    """
+    Create a preview-friendly score breakdown list.
+
+    This is derived from the same `out.factors` that will be persisted as `RiskFactor` rows on submit,
+    ensuring preview and saved detail are consistent.
+    """
+    rows: list[dict[str, Any]] = []
+    for f in getattr(out, "factors", []) or []:
+        impact = float(f.get("impact", 0))
+        rows.append(
+            {
+                "code": f.get("code"),
+                "label": f.get("labelTh"),
+                "score": abs(impact),
+                "reason": f.get("labelTh"),
+                "impact": impact,
+            }
+        )
+    return rows
+
+
+def _risk_factors_preview_from_score_output(out: Any) -> list[dict[str, Any]]:
+    """
+    Risk factor list matching the persisted `GET /assessments/{id}/risk-factors` shape (per factor row).
+    """
+    factors: list[dict[str, Any]] = []
+    for f in getattr(out, "factors", []) or []:
+        impact = float(f.get("impact", 0))
+        factors.append(
+            {
+                "code": f.get("code"),
+                "labelTh": f.get("labelTh"),
+                "impactDirection": "NEGATIVE" if impact < 0 else "POSITIVE",
+                "impactScore": abs(impact),
+                "detail": f.get("labelTh"),
+            }
+        )
+    return factors
+
+
+def _recommendations_preview_from_score_output(out: Any) -> list[dict[str, Any]]:
+    """
+    Recommendation list matching the persisted `GET /assessments/{id}/recommendations` item shape.
+    """
+    recs: list[dict[str, Any]] = []
+    for r in getattr(out, "recommendations", []) or []:
+        recs.append(
+            {
+                "type": r.get("type"),
+                "titleTh": r.get("titleTh"),
+                "descriptionTh": r.get("descriptionTh"),
+                "priority": r.get("priority"),
+                "isPrimary": r.get("isPrimary"),
+            }
+        )
+    return recs
+
+
+def _grade_from_score(score: float) -> str:
+    if score >= 85:
+        return "A"
+    if score >= 75:
+        return "B"
+    if score >= 60:
+        return "C"
+    if score >= 45:
+        return "D"
+    return "E"
+
+
+def _clamp_score(score: float) -> float:
+    return max(0.0, min(100.0, float(score)))
+
+
+def _risk_level_from_probability(prob: float) -> str:
+    p = float(prob)
+    if p >= 0.70:
+        return "HIGH"
+    if p >= 0.40:
+        return "MEDIUM"
+    return "LOW"
+
+
+def _recommendation_from_probability(prob: float) -> str:
+    rl = _risk_level_from_probability(prob)
+    if rl == "HIGH":
+        return "REJECT"
+    if rl == "MEDIUM":
+        return "REVIEW_MANUAL"
+    return "APPROVE"
+
+
+def _model_score_delta(prob: float) -> float:
+    """
+    Convert model default probability into a score delta for the unified score.
+
+    This makes the final `result.score` depend on BOTH deterministic rules and model output,
+    while keeping preview and submit consistent.
+    """
+    p = float(prob)
+    if p >= 0.70:
+        return -25.0
+    if p >= 0.40:
+        return -10.0
+    return 10.0
+
+
+def _evaluate_assessment_unified(
+    *,
+    model_result: dict[str, Any],
+    score_out: Any,
+    threshold: float,
+    assessment_id: str | None,
+    assessment_no: str | None,
+    mode: str,
+    calculated_at: datetime,
+    saved_at: datetime | None,
+    result_id: str | None,
+    input_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Build unified response `data` for calculate/submit/re-evaluate.
+
+    Invariants:
+    - `result.*` and `scoreBreakdown/riskFactors/recommendations` are derived from the same evaluation.
+    - Preview and submit become identical given the same inputs.
+    """
+    model_prob = float(model_result["defaultProbability"])
+
+    # Start with deterministic breakdown, then add model delta.
+    breakdown_items: list[dict[str, Any]] = []
+    for f in getattr(score_out, "factors", []) or []:
+        impact = float(f.get("impact", 0))
+        breakdown_items.append(
+            {
+                "code": f.get("code"),
+                "labelTh": f.get("labelTh"),
+                "labelEn": None,
+                "value": None,
+                "scoreDelta": impact,
+                "detail": f.get("labelTh"),
+            }
+        )
+
+    breakdown_items.append(
+        {
+            "code": "MODEL_DEFAULT_PROBABILITY",
+            "labelTh": "ผลวิเคราะห์จากโมเดล (ความน่าจะเป็นผิดนัด)",
+            "labelEn": "Model default probability",
+            "value": round(model_prob, 6),
+            "scoreDelta": _model_score_delta(model_prob),
+            "detail": f"default_probability = {model_prob:.6f}",
+        }
+    )
+
+    final_score = _clamp_score(100.0 + sum(float(x.get("scoreDelta", 0)) for x in breakdown_items))
+    credit_score = int(round(300 + final_score * 5.5))
+    risk_level = _risk_level_from_probability(model_prob)
+    recommendation_type = _recommendation_from_probability(model_prob)
+
+    # Risk factors and recommendations derived from same sources.
+    risk_factors = [
+        {
+            "code": i["code"],
+            "labelTh": i["labelTh"],
+            "impactDirection": "NEGATIVE" if float(i["scoreDelta"]) < 0 else "POSITIVE",
+            "impactScore": abs(float(i["scoreDelta"])),
+            "detail": i.get("detail"),
+        }
+        for i in breakdown_items
+        if float(i.get("scoreDelta", 0)) != 0
+    ]
+
+    recommendations = _recommendations_preview_from_score_output(score_out)
+    # Force recommendation type to match model-derived recommendation (unified contract).
+    if recommendations:
+        recommendations[0]["type"] = recommendation_type
+
+    primary_reason = str(getattr(score_out, "primary_reason", "") or "")
+    if not primary_reason:
+        primary_reason = (
+            "ความเสี่ยงโดยรวมสูง" if risk_level == "HIGH" else "ควรพิจารณาเพิ่มเติม" if risk_level == "MEDIUM" else "ความเสี่ยงโดยรวมอยู่ในเกณฑ์ต่ำ"
+        )
+
+    return {
+        "assessmentId": assessment_id,
+        "assessmentNo": assessment_no,
+        "mode": mode,
+        "calculatedAt": calculated_at.isoformat(),
+        "savedAt": saved_at.isoformat() if saved_at else None,
+        "result": {
+            "resultId": result_id,
+            "score": round(final_score, 2),
+            "scoreScale": 100,
+            "creditScore": credit_score,
+            "scoreGrade": _grade_from_score(final_score),
+            "defaultProbability": round(model_prob, 6),
+            "riskLevel": risk_level,
+            "recommendationType": recommendation_type,
+            "primaryReason": primary_reason,
+        },
+        "scoreBreakdown": breakdown_items,
+        "riskFactors": risk_factors,
+        "recommendations": recommendations,
+        "inputSnapshot": input_snapshot,
+        "model": {
+            "name": "credit-risk-model",
+            "version": "application_model_v1",
+            "threshold": threshold,
+        },
+        "trace": {
+            "requestId": None,
+            "source": "unified_assessment_evaluator",
+        },
+        # Keep full model output available under one field (frontend can render it directly).
+        "modelPrediction": {
+            "index": model_result["index"],
+            "defaultProbability": model_result["defaultProbability"],
+            "decision": model_result["decision"],
+            "decisionEn": model_result["decisionEn"],
+            "riskBand": model_result["riskBand"],
+            "riskBandEn": model_result["riskBandEn"],
+            "threshold": model_result["threshold"],
+            "modelVersion": "application_model_v1",
+        },
+    }
 
 
 def _profile_to_api(row: ApplicantProfile | None) -> dict[str, Any] | None:
@@ -198,6 +598,13 @@ def _financial_to_api(row: ApplicantFinancialInfo | None) -> dict[str, Any] | No
         "debtServiceRatio": float(row.debt_service_ratio) if row.debt_service_ratio is not None else None,
         "netMonthlyIncome": float(row.net_monthly_income) if row.net_monthly_income is not None else None,
     }
+
+
+def _translate_payload(payload: dict[str, Any], alias_map: dict[str, str]) -> dict[str, Any]:
+    translated: dict[str, Any] = {}
+    for key, value in payload.items():
+        translated[alias_map.get(key, key)] = value
+    return translated
 
 
 def _upsert_assessment_data(
@@ -413,6 +820,160 @@ def db_health_v1(db: Session = Depends(get_db)) -> dict[str, Any]:
     return ok({"dbConnected": True})
 
 
+@router.get("/model-info")
+def model_info_v1(request: Request) -> dict[str, Any]:
+    artifacts = request.app.state.artifacts
+    metrics = request.app.state.metrics
+    return ok(
+        {
+            "modelVersion": "application_model_v1",
+            "metrics": metrics,
+            "numRawFields": len(artifacts.raw_feature_columns),
+            "numModelFeatures": len(artifacts.feature_columns),
+            "numRawNumericFields": len(artifacts.raw_numeric_columns),
+            "numRawCategoricalFields": len(artifacts.raw_categorical_columns),
+        }
+    )
+
+
+@router.get("/input-template")
+def input_template_v1(request: Request) -> dict[str, Any]:
+    artifacts = request.app.state.artifacts
+    sample = {k: None for k in artifacts.raw_feature_columns}
+    return ok(
+        {
+            "template": sample,
+            "descriptionByField": {},
+            "thaiAliasAvailable": bool(getattr(request.app.state, "alias_map", {})),
+        }
+    )
+
+
+@router.get("/input-catalog")
+def input_catalog_v1(request: Request) -> dict[str, Any]:
+    catalog = getattr(request.app.state, "catalog", {})
+    return ok(catalog if catalog else {"message": "catalog not found"})
+
+
+@router.get("/input-summary")
+def input_summary_v1(request: Request) -> dict[str, Any]:
+    artifacts = request.app.state.artifacts
+    catalog = getattr(request.app.state, "catalog", {})
+    minimum_fields = catalog.get("minimum_web_form_fields", []) if isinstance(catalog, dict) else []
+    extended_fields = catalog.get("recommended_extended_fields", []) if isinstance(catalog, dict) else []
+    field_catalog = catalog.get("field_catalog", []) if isinstance(catalog, dict) else []
+    return ok(
+        {
+            "payloadModes": ["single_object", "array_of_objects"],
+            "thresholdSupported": True,
+            "rawInputFieldCountFromModel": len(artifacts.raw_feature_columns),
+            "minimumWebFormFieldCount": len(minimum_fields),
+            "recommendedExtendedFieldCount": len(extended_fields),
+            "catalogFieldCount": len(field_catalog),
+            "minimumWebFormFields": minimum_fields,
+            "recommendedExtendedFields": extended_fields,
+        }
+    )
+
+
+@router.get("/predictions")
+def predictions_v1(
+    limit: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _: tuple[User, str] = Depends(_require_role({"ADMIN", "ANALYST"})),
+) -> dict[str, Any]:
+    rows = list_prediction_logs(db, limit=limit)
+    return ok(
+        {
+            "count": len(rows),
+            "items": [
+                {
+                    "id": r.id,
+                    "createdAt": r.created_at.isoformat(),
+                    "modelVersion": r.model_version,
+                    "threshold": r.threshold,
+                    "clientIp": r.client_ip,
+                    "predictions": r.predictions,
+                }
+                for r in rows
+            ],
+        }
+    )
+
+
+@router.get("/predictions/{prediction_id}")
+def prediction_detail_v1(
+    prediction_id: int,
+    db: Session = Depends(get_db),
+    _: tuple[User, str] = Depends(_require_role({"ADMIN", "ANALYST"})),
+) -> dict[str, Any]:
+    row = get_prediction_log_by_id(db, prediction_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="PREDICTION_NOT_FOUND")
+    return ok(
+        {
+            "id": row.id,
+            "createdAt": row.created_at.isoformat(),
+            "modelVersion": row.model_version,
+            "threshold": row.threshold,
+            "clientIp": row.client_ip,
+            "requestPayload": row.request_payload,
+            "translatedPayload": row.translated_payload,
+            "predictions": row.predictions,
+        }
+    )
+
+
+@router.post("/predict")
+def predict_v1(
+    req: PredictModelRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    _: tuple[User, str] = Depends(_require_role({"ADMIN", "ANALYST"})),
+) -> dict[str, Any]:
+    rows = req.payload if isinstance(req.payload, list) else [req.payload]
+    alias_map = getattr(request.app.state, "alias_map", {})
+    model = request.app.state.model
+    artifacts = request.app.state.artifacts
+    prediction_service = PredictionService(model, artifacts, alias_map)
+    # Build modelPayload for each row
+    model_payloads = [prediction_service.build_model_payload(prediction_service.prepare_input(row)) for row in rows]
+    predictions = prediction_service.predict_batch(model_payloads, threshold=req.threshold)
+
+    log_row = create_prediction_log(
+        db,
+        model_version="application_model_v1",
+        threshold=req.threshold,
+        client_ip=request.client.host if request.client else None,
+        request_payload=req.payload,
+        translated_payload=model_payloads,
+        predictions=[
+            {
+                "index": p["index"],
+                "default_probability": p["defaultProbability"],
+                "decision": p["decision"],
+                "decision_en": p["decisionEn"],
+                "risk_band": p["riskBand"],
+                "risk_band_en": p["riskBandEn"],
+                "threshold": p["threshold"],
+            }
+            for p in predictions
+        ],
+    )
+
+    for p in predictions:
+        p["requestId"] = log_row.id
+
+    return ok(
+        {
+            "predictions": predictions,
+            "modelVersion": "application_model_v1",
+            "modelPayloads": model_payloads,
+        },
+        "Prediction completed",
+    )
+
+
 @router.get("/assessments/form-options")
 def form_options(db: Session = Depends(get_db), _: tuple[User, str] = Depends(_require_role({"ADMIN", "ANALYST"}))) -> dict[str, Any]:
     provinces = db.scalars(select(Province).order_by(Province.code)).all()
@@ -493,30 +1054,52 @@ def update_assessment(
 @router.post("/assessments/calculate")
 def calculate_preview(
     req: AssessmentUpsertRequest,
+    request: Request,
+    db: Session = Depends(get_db),
     _: tuple[User, str] = Depends(_require_role({"ADMIN", "ANALYST"})),
 ) -> dict[str, Any]:
+    threshold = 0.5
+    # 1. Prepare model and artifacts
+    model = request.app.state.model
+    artifacts = request.app.state.artifacts
+    alias_map = getattr(request.app.state, "alias_map", {})
+    prediction_service = PredictionService(model, artifacts, alias_map)
+
+
+    # 2. Transform assessment form -> Home Credit model payload (feature-real)
+    flat = prediction_service.prepare_input(req.model_dump(mode="python"))
+    model_payload = prediction_service.build_model_payload(flat)
+
+    # 3. Call ML model
+    model_result = prediction_service.predict(model_payload, threshold=threshold)
+
+    # 4. Deterministic scoring (use both form and model output)
     age = _age_years(req.applicantProfile.dateOfBirth)
     has_defaulted = any(d.isDefaulted for d in req.debtInfos)
-    out = calculate_risk(
+    score_out = calculate_risk(
         age_years=age,
         monthly_income=req.employmentInfo.monthlyIncome,
         job_tenure_months=req.employmentInfo.jobTenureMonths,
         monthly_debt_payment=req.financialInfo.monthlyDebtPayment,
         has_defaulted=has_defaulted,
     )
-    return ok(
-        {
-            "score": out.score,
-            "scoreScale": out.score_scale,
-            "creditScore": out.credit_score,
-            "scoreGrade": out.score_grade,
-            "riskLevel": out.risk_level,
-            "defaultProbability": out.default_probability,
-            "recommendationType": out.recommendation_type,
-            "dti": out.dti,
-        },
-        "Calculation completed",
+
+    # 5. Build preview response
+    input_snapshot = req.model_dump(mode="python")
+    input_snapshot["modelPayload"] = model_payload
+    response_data = _evaluate_assessment_unified(
+        model_result=model_result,
+        score_out=score_out,
+        threshold=threshold,
+        assessment_id=None,
+        assessment_no=None,
+        mode="PREVIEW",
+        calculated_at=_utc_now(),
+        saved_at=None,
+        result_id=None,
+        input_snapshot=input_snapshot,
     )
+    return ok(response_data, "คำนวณผลประเมินสำเร็จ")
 
 
 @router.get("/assessments/{assessment_id}")
@@ -558,9 +1141,12 @@ def get_assessment(
 @router.post("/assessments/{assessment_id}/submit")
 def submit_assessment(
     assessment_id: str,
+    request: Request,
+    req: AssessmentUpsertRequest | None = None,
     db: Session = Depends(get_db),
     current: tuple[User, str] = Depends(_require_role({"ADMIN", "ANALYST"})),
 ) -> dict[str, Any]:
+    threshold = 0.5
     user, _ = current
     assessment = db.scalar(select(LoanAssessment).where(LoanAssessment.id == assessment_id, LoanAssessment.deleted_at.is_(None)))
     if not assessment:
@@ -570,38 +1156,82 @@ def submit_assessment(
     emp = db.scalar(select(ApplicantEmploymentInfo).where(ApplicantEmploymentInfo.assessment_id == assessment.id))
     fin = db.scalar(select(ApplicantFinancialInfo).where(ApplicantFinancialInfo.assessment_id == assessment.id))
     debts = db.scalars(select(ApplicantDebtInfo).where(ApplicantDebtInfo.assessment_id == assessment.id)).all()
+
+    # If frontend sends the latest form payload, update DB first so submit uses identical inputs.
+    # This also enables passing extra Home Credit model features via nested sections (extra="allow").
+    if req is not None:
+        _upsert_assessment_data(db, assessment, req)
+        assessment.updated_at = _utc_now()
+        db.flush()
+        # Reload rows after upsert for snapshot/consistency
+        profile = db.scalar(select(ApplicantProfile).where(ApplicantProfile.assessment_id == assessment.id))
+        emp = db.scalar(select(ApplicantEmploymentInfo).where(ApplicantEmploymentInfo.assessment_id == assessment.id))
+        fin = db.scalar(select(ApplicantFinancialInfo).where(ApplicantFinancialInfo.assessment_id == assessment.id))
+        debts = db.scalars(select(ApplicantDebtInfo).where(ApplicantDebtInfo.assessment_id == assessment.id)).all()
+
     if not profile or not emp or not fin:
         raise HTTPException(status_code=400, detail="ASSESSMENT_INCOMPLETE")
-    has_defaulted = any(d.is_defaulted for d in debts)
-    out = calculate_risk(
-        age_years=profile.age_years_snapshot,
-        monthly_income=float(emp.monthly_income),
-        job_tenure_months=emp.job_tenure_months,
-        monthly_debt_payment=float(fin.monthly_debt_payment),
-        has_defaulted=has_defaulted,
-    )
+
+    # Prepare model input from assessment data
+    model = request.app.state.model
+    artifacts = request.app.state.artifacts
+    alias_map = getattr(request.app.state, "alias_map", {})
+    prediction_service = PredictionService(model, artifacts, alias_map)
+    if req is not None:
+        flat = prediction_service.prepare_input(req.model_dump(mode="python"))
+        model_payload = prediction_service.build_model_payload(flat)
+    else:
+        partial_payload = _assessment_rows_to_model_payload(profile=profile, emp=emp, fin=fin, artifacts=artifacts)
+        flat = prediction_service.prepare_input(partial_payload)
+        model_payload = prediction_service.build_model_payload(flat)
+    model_result = prediction_service.predict(model_payload, threshold=threshold)
+
+    # Deterministic scoring
+    if req is not None:
+        has_defaulted = any(d.isDefaulted for d in req.debtInfos)
+        age_years = _age_years(req.applicantProfile.dateOfBirth)
+        out = calculate_risk(
+            age_years=age_years,
+            monthly_income=req.employmentInfo.monthlyIncome,
+            job_tenure_months=req.employmentInfo.jobTenureMonths,
+            monthly_debt_payment=req.financialInfo.monthlyDebtPayment,
+            has_defaulted=has_defaulted,
+        )
+    else:
+        has_defaulted = any(d.is_defaulted for d in debts)
+        out = calculate_risk(
+            age_years=profile.age_years_snapshot,
+            monthly_income=float(emp.monthly_income),
+            job_tenure_months=emp.job_tenure_months,
+            monthly_debt_payment=float(fin.monthly_debt_payment),
+            has_defaulted=has_defaulted,
+        )
 
     latest_ver = db.scalar(
         select(func.max(RiskResult.result_version)).where(RiskResult.assessment_id == assessment.id)
     )
     next_ver = int(latest_ver or 0) + 1
+    model_prob = float(model_result["defaultProbability"])
+    model_risk_level = _risk_level_from_probability(model_prob)
+    model_recommendation_type = _recommendation_from_probability(model_prob)
     result = RiskResult(
         assessment_id=assessment.id,
         result_version=next_ver,
-        model_version="hybrid_v1",
+        model_version="application_model_v1",
         score=out.score,
         score_scale=out.score_scale,
         credit_score=out.credit_score,
         score_grade=out.score_grade,
-        default_probability=out.default_probability,
-        risk_level=out.risk_level,
-        recommendation_type=out.recommendation_type,
-        primary_reason=out.primary_reason,
+        default_probability=model_prob,
+        risk_level=model_risk_level,
+        recommendation_type=model_recommendation_type,
+        primary_reason=str(model_result.get("decision") or out.primary_reason),
         calculated_by="MODEL",
     )
     db.add(result)
     db.flush()
 
+    # Save score breakdown and risk factors
     for f in out.factors:
         db.add(
             RiskFactor(
@@ -626,6 +1256,9 @@ def submit_assessment(
             )
         )
 
+    # Save model output snapshot (as JSON in a new field or as a related table if needed)
+    # For now, just log in RiskResult.primary_reason or extend model if needed
+
     prev_status = assessment.status
     assessment.status = "COMPLETED"
     assessment.submitted_at = assessment.submitted_at or _utc_now()
@@ -642,15 +1275,38 @@ def submit_assessment(
         )
     )
     db.commit()
-    return ok(
-        {
-            "assessmentId": assessment.id,
-            "assessmentNo": assessment.assessment_no,
-            "status": assessment.status,
-            "resultId": result.id,
-        },
-        "Assessment submitted",
+
+    input_snapshot = {
+        "applicantProfile": _profile_to_api(profile),
+        "employmentInfo": _employment_to_api(emp),
+        "financialInfo": _financial_to_api(fin),
+        "debtInfos": [
+            {
+                "debtType": d.debt_type,
+                "creditorName": d.creditor_name,
+                "outstandingAmount": float(d.outstanding_amount),
+                "monthlyPayment": float(d.monthly_payment),
+                "delinquentDays": d.delinquent_days,
+                "isDefaulted": d.is_defaulted,
+            }
+            for d in debts
+        ],
+        "modelPayload": model_payload,
+    }
+
+    response_data = _evaluate_assessment_unified(
+        model_result=model_result,
+        score_out=out,
+        threshold=threshold,
+        assessment_id=assessment.id,
+        assessment_no=assessment.assessment_no,
+        mode="SUBMITTED",
+        calculated_at=result.created_at,
+        saved_at=result.created_at,
+        result_id=result.id,
+        input_snapshot=input_snapshot,
     )
+    return ok(response_data, "บันทึกผลการประเมินสำเร็จ")
 
 
 @router.get("/assessments/{assessment_id}/result")
@@ -760,7 +1416,7 @@ def list_assessments(
     if search:
         stmt = stmt.where(LoanAssessment.assessment_no.ilike(f"%{search}%"))
 
-    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    total_pre = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     if sortBy == "submittedAt":
         sort_col = LoanAssessment.submitted_at
     else:
@@ -771,7 +1427,7 @@ def list_assessments(
         stmt = stmt.order_by(sort_col.desc())
     items = db.scalars(stmt.offset((page - 1) * pageSize).limit(pageSize)).all()
 
-    rows = []
+    rows: list[dict[str, Any]] = []
     for a in items:
         profile = db.scalar(select(ApplicantProfile).where(ApplicantProfile.assessment_id == a.id))
         result = db.scalar(select(RiskResult).where(RiskResult.id == a.latest_result_id)) if a.latest_result_id else None
@@ -790,6 +1446,10 @@ def list_assessments(
             }
         )
 
+    if sortBy == "score":
+        rows.sort(key=lambda x: (x["score"] is None, x["score"]), reverse=(sortOrder.lower() != "asc"))
+
+    total = len(rows) if (riskLevel and total_pre > 0) else total_pre
     total_pages = max(1, (total + pageSize - 1) // pageSize)
     return ok(
         {
@@ -869,9 +1529,12 @@ def assessment_detail(
 @router.post("/assessments/{assessment_id}/re-evaluate")
 def re_evaluate(
     assessment_id: str,
+    request: Request,
+    req: AssessmentUpsertRequest | None = None,
     db: Session = Depends(get_db),
     _: tuple[User, str] = Depends(_require_role({"ADMIN"})),
 ) -> dict[str, Any]:
+    threshold = 0.5
     assessment = db.scalar(select(LoanAssessment).where(LoanAssessment.id == assessment_id, LoanAssessment.deleted_at.is_(None)))
     if not assessment:
         raise HTTPException(status_code=404, detail="ASSESSMENT_NOT_FOUND")
@@ -879,16 +1542,41 @@ def re_evaluate(
     emp = db.scalar(select(ApplicantEmploymentInfo).where(ApplicantEmploymentInfo.assessment_id == assessment.id))
     fin = db.scalar(select(ApplicantFinancialInfo).where(ApplicantFinancialInfo.assessment_id == assessment.id))
     debts = db.scalars(select(ApplicantDebtInfo).where(ApplicantDebtInfo.assessment_id == assessment.id)).all()
+
+    if req is not None:
+        _upsert_assessment_data(db, assessment, req)
+        assessment.updated_at = _utc_now()
+        db.flush()
+        profile = db.scalar(select(ApplicantProfile).where(ApplicantProfile.assessment_id == assessment.id))
+        emp = db.scalar(select(ApplicantEmploymentInfo).where(ApplicantEmploymentInfo.assessment_id == assessment.id))
+        fin = db.scalar(select(ApplicantFinancialInfo).where(ApplicantFinancialInfo.assessment_id == assessment.id))
+        debts = db.scalars(select(ApplicantDebtInfo).where(ApplicantDebtInfo.assessment_id == assessment.id)).all()
+
     if not profile or not emp or not fin:
         raise HTTPException(status_code=400, detail="ASSESSMENT_INCOMPLETE")
+
+    model = request.app.state.model
+    artifacts = request.app.state.artifacts
+    alias_map = getattr(request.app.state, "alias_map", {})
+    prediction_service = PredictionService(model, artifacts, alias_map)
+    model_payload = (
+        _assessment_to_model_payload(req, artifacts)  # type: ignore[arg-type]
+        if req is not None
+        else _assessment_rows_to_model_payload(profile=profile, emp=emp, fin=fin, artifacts=artifacts)
+    )
+    model_result = prediction_service.predict(model_payload, threshold=threshold)
+
     out = calculate_risk(
-        age_years=profile.age_years_snapshot,
-        monthly_income=float(emp.monthly_income),
-        job_tenure_months=emp.job_tenure_months,
-        monthly_debt_payment=float(fin.monthly_debt_payment),
-        has_defaulted=any(d.is_defaulted for d in debts),
+        age_years=_age_years(req.applicantProfile.dateOfBirth) if req is not None else profile.age_years_snapshot,
+        monthly_income=req.employmentInfo.monthlyIncome if req is not None else float(emp.monthly_income),
+        job_tenure_months=req.employmentInfo.jobTenureMonths if req is not None else emp.job_tenure_months,
+        monthly_debt_payment=req.financialInfo.monthlyDebtPayment if req is not None else float(fin.monthly_debt_payment),
+        has_defaulted=(any(d.isDefaulted for d in req.debtInfos) if req is not None else any(d.is_defaulted for d in debts)),
     )
     latest_ver = db.scalar(select(func.max(RiskResult.result_version)).where(RiskResult.assessment_id == assessment.id)) or 0
+    model_prob = float(model_result["defaultProbability"])
+    model_risk_level = _risk_level_from_probability(model_prob)
+    model_recommendation_type = _recommendation_from_probability(model_prob)
     result = RiskResult(
         assessment_id=assessment.id,
         result_version=int(latest_ver) + 1,
@@ -897,19 +1585,74 @@ def re_evaluate(
         score_scale=100,
         credit_score=out.credit_score,
         score_grade=out.score_grade,
-        default_probability=out.default_probability,
-        risk_level=out.risk_level,
-        recommendation_type=out.recommendation_type,
-        primary_reason=out.primary_reason,
+        default_probability=model_prob,
+        risk_level=model_risk_level,
+        recommendation_type=model_recommendation_type,
+        primary_reason=str(model_result.get("decision") or out.primary_reason),
         calculated_by="MODEL",
     )
     db.add(result)
     db.flush()
+
+    for f in out.factors:
+        db.add(
+            RiskFactor(
+                risk_result_id=result.id,
+                factor_code=f["code"],
+                factor_label_th=f["labelTh"],
+                factor_label_en=None,
+                impact_direction="NEGATIVE" if float(f["impact"]) < 0 else "POSITIVE",
+                impact_score=abs(float(f["impact"])),
+                detail=f["labelTh"],
+            )
+        )
+    for r in out.recommendations:
+        db.add(
+            RiskRecommendation(
+                risk_result_id=result.id,
+                recommendation_type=r["type"],
+                title_th=r["titleTh"],
+                description_th=r["descriptionTh"],
+                priority=r["priority"],
+                is_primary=r["isPrimary"],
+            )
+        )
+
     assessment.latest_result_id = result.id
     assessment.status = "RE_EVALUATED"
     assessment.updated_at = _utc_now()
     db.commit()
-    return ok({"assessmentId": assessment.id, "resultId": result.id}, "Assessment re-evaluated")
+
+    input_snapshot = {
+        "applicantProfile": _profile_to_api(profile),
+        "employmentInfo": _employment_to_api(emp),
+        "financialInfo": _financial_to_api(fin),
+        "debtInfos": [
+            {
+                "debtType": d.debt_type,
+                "creditorName": d.creditor_name,
+                "outstandingAmount": float(d.outstanding_amount),
+                "monthlyPayment": float(d.monthly_payment),
+                "delinquentDays": d.delinquent_days,
+                "isDefaulted": d.is_defaulted,
+            }
+            for d in debts
+        ],
+    }
+
+    response_data = _evaluate_assessment_unified(
+        model_result=model_result,
+        score_out=out,
+        threshold=threshold,
+        assessment_id=assessment.id,
+        assessment_no=assessment.assessment_no,
+        mode="RE_EVALUATED",
+        calculated_at=result.created_at,
+        saved_at=result.created_at,
+        result_id=result.id,
+        input_snapshot=input_snapshot,
+    )
+    return ok(response_data, "ประเมินใหม่สำเร็จ")
 
 
 @router.get("/dashboard/summary")
