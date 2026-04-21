@@ -107,18 +107,23 @@ class PredictionService:
         X = preprocess_for_inference(pd.DataFrame([row]), self.artifacts)
         print("[DEBUG] Model input X:\n", X)
         prob = float(self.model.predict(X)[0])
-        is_default_risk = prob >= threshold
-        decision = "เสี่ยงผิดนัด" if is_default_risk else "ความเสี่ยงต่ำกว่าเกณฑ์"
-        decision_en = "default_risk" if is_default_risk else "below_threshold"
-        if prob >= 0.7:
+        # Canonical banding aligned with assessment Decision Matrix:
+        # p >= 0.30 -> high, 0.12 <= p < 0.30 -> medium, else low
+        if prob >= 0.30:
             risk_band = "สูง"
             risk_band_en = "high"
-        elif prob >= 0.4:
+            decision = "ความเสี่ยงสูง"
+            decision_en = "high_risk"
+        elif prob >= 0.12:
             risk_band = "กลาง"
             risk_band_en = "medium"
+            decision = "ความเสี่ยงปานกลาง"
+            decision_en = "medium_risk"
         else:
             risk_band = "ต่ำ"
             risk_band_en = "low"
+            decision = "ความเสี่ยงต่ำ"
+            decision_en = "low_risk"
         return {
             "index": 0,
             "defaultProbability": round(prob, 6),
@@ -136,18 +141,21 @@ class PredictionService:
         results: list[dict[str, Any]] = []
         for idx, prob in enumerate(probs):
             prob_f = float(prob)
-            is_default_risk = prob_f >= threshold
-            decision = "เสี่ยงผิดนัด" if is_default_risk else "ความเสี่ยงต่ำกว่าเกณฑ์"
-            decision_en = "default_risk" if is_default_risk else "below_threshold"
-            if prob_f >= 0.7:
+            if prob_f >= 0.30:
                 risk_band = "สูง"
                 risk_band_en = "high"
-            elif prob_f >= 0.4:
+                decision = "ความเสี่ยงสูง"
+                decision_en = "high_risk"
+            elif prob_f >= 0.12:
                 risk_band = "กลาง"
                 risk_band_en = "medium"
+                decision = "ความเสี่ยงปานกลาง"
+                decision_en = "medium_risk"
             else:
                 risk_band = "ต่ำ"
                 risk_band_en = "low"
+                decision = "ความเสี่ยงต่ำ"
+                decision_en = "low_risk"
             results.append(
                 {
                     "index": idx,

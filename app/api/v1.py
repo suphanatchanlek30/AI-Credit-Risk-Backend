@@ -405,21 +405,99 @@ def _clamp_score(score: float) -> float:
 
 
 def _risk_level_from_probability(prob: float) -> str:
+    """
+    Canonical risk level mapping (Backend Decision Matrix).
+
+    p = defaultProbability (0..1)
+    - p >= 0.30 -> HIGH
+    - 0.12 <= p < 0.30 -> MEDIUM
+    - p < 0.12 -> LOW
+    """
     p = float(prob)
-    if p >= 0.70:
+    if p >= 0.30:
         return "HIGH"
-    if p >= 0.40:
+    if p >= 0.12:
         return "MEDIUM"
     return "LOW"
 
 
-def _recommendation_from_probability(prob: float) -> str:
-    rl = _risk_level_from_probability(prob)
-    if rl == "HIGH":
+def _recommendation_from_matrix(*, p: float, score: float, has_default: bool, dti: float) -> str:
+    """
+    Canonical recommendation mapping (Backend Decision Matrix).
+
+    Rules (same for calculate/submit/re-evaluate):
+    - if hasDefault and (p >= 0.20 or score < 55) -> REJECT
+    - if dti >= 0.70 -> REJECT
+    - if riskLevel == HIGH -> REJECT
+    - if riskLevel == MEDIUM -> REVIEW_MANUAL
+    - if riskLevel == LOW and score >= 70 -> APPROVE
+    - else -> REVIEW_MANUAL
+    """
+    p_f = float(p)
+    score_f = float(score)
+    dti_f = float(dti)
+
+    risk_level = _risk_level_from_probability(p_f)
+
+    if has_default and (p_f >= 0.20 or score_f < 55.0):
         return "REJECT"
-    if rl == "MEDIUM":
+    if dti_f >= 0.70:
+        return "REJECT"
+    if risk_level == "HIGH":
+        return "REJECT"
+    if risk_level == "MEDIUM":
         return "REVIEW_MANUAL"
-    return "APPROVE"
+    if risk_level == "LOW" and score_f >= 70.0:
+        return "APPROVE"
+    return "REVIEW_MANUAL"
+
+
+def _primary_reason_from_matrix(*, risk_level: str, has_default: bool, dti: float) -> str:
+    """
+    Canonical primary reason (Backend Decision Matrix).
+
+    Priority order:
+    - hasDefault -> "มีประวัติผิดนัดชำระ"
+    - dti >= 0.70 -> "ภาระหนี้ต่อรายได้สูงมาก"
+    - riskLevel == HIGH -> "โอกาสผิดนัดอยู่ในระดับสูง"
+    - riskLevel == MEDIUM -> "ควรตรวจสอบข้อมูลเพิ่มเติม"
+    - riskLevel == LOW -> "ความเสี่ยงโดยรวมอยู่ในเกณฑ์ต่ำ"
+    """
+    if has_default:
+        return "มีประวัติผิดนัดชำระ"
+    if float(dti) >= 0.70:
+        return "ภาระหนี้ต่อรายได้สูงมาก"
+    if risk_level == "HIGH":
+        return "โอกาสผิดนัดอยู่ในระดับสูง"
+    if risk_level == "MEDIUM":
+        return "ควรตรวจสอบข้อมูลเพิ่มเติม"
+    return "ความเสี่ยงโดยรวมอยู่ในเกณฑ์ต่ำ"
+
+
+def _recommendations_from_type(recommendation_type: str) -> list[dict[str, Any]]:
+    """
+    Canonical recommendations list for API response and persistence.
+
+    We intentionally do NOT trust ScoreOutput.recommendations here because that
+    is derived from score-only probability (not the ML probability p).
+    """
+    rt = str(recommendation_type or "").upper()
+    if rt == "APPROVE":
+        desc = "อนุมัติได้ภายใต้เงื่อนไขมาตรฐาน"
+    elif rt == "REJECT":
+        desc = "ควรปฏิเสธหรือขอหลักประกันเพิ่ม"
+    else:
+        rt = "REVIEW_MANUAL"
+        desc = "ควรตรวจสอบเอกสาร/ข้อมูลเพิ่มเติมก่อนพิจารณาอนุมัติ"
+    return [
+        {
+            "type": rt,
+            "titleTh": "คำแนะนำหลัก",
+            "descriptionTh": desc,
+            "priority": 1,
+            "isPrimary": True,
+        }
+    ]
 
 
 def _model_score_delta(prob: float) -> float:
@@ -449,6 +527,8 @@ def _evaluate_assessment_unified(
     saved_at: datetime | None,
     result_id: str | None,
     input_snapshot: dict[str, Any],
+    has_default: bool,
+    dti: float,
 ) -> dict[str, Any]:
     """
     Build unified response `data` for calculate/submit/re-evaluate.
@@ -459,7 +539,7 @@ def _evaluate_assessment_unified(
     """
     model_prob = float(model_result["defaultProbability"])
 
-    # Start with deterministic breakdown, then add model delta.
+    # Deterministic breakdown items (score engine).
     breakdown_items: list[dict[str, Any]] = []
     for f in getattr(score_out, "factors", []) or []:
         impact = float(f.get("impact", 0))
@@ -480,15 +560,23 @@ def _evaluate_assessment_unified(
             "labelTh": "ผลวิเคราะห์จากโมเดล (ความน่าจะเป็นผิดนัด)",
             "labelEn": "Model default probability",
             "value": round(model_prob, 6),
-            "scoreDelta": _model_score_delta(model_prob),
+            # For canonical contract, model probability is shown but does not directly change `score`.
+            "scoreDelta": 0.0,
             "detail": f"default_probability = {model_prob:.6f}",
         }
     )
 
-    final_score = _clamp_score(100.0 + sum(float(x.get("scoreDelta", 0)) for x in breakdown_items))
-    credit_score = int(round(300 + final_score * 5.5))
+    final_score = float(getattr(score_out, "score", 0.0) or 0.0)
+    credit_score = int(getattr(score_out, "credit_score", int(round(300 + final_score * 5.5))) or int(round(300 + final_score * 5.5)))
+    score_grade = str(getattr(score_out, "score_grade", _grade_from_score(final_score)) or _grade_from_score(final_score))
+
     risk_level = _risk_level_from_probability(model_prob)
-    recommendation_type = _recommendation_from_probability(model_prob)
+    recommendation_type = _recommendation_from_matrix(
+        p=model_prob,
+        score=final_score,
+        has_default=bool(has_default),
+        dti=float(dti),
+    )
 
     # Risk factors and recommendations derived from same sources.
     risk_factors = [
@@ -503,16 +591,8 @@ def _evaluate_assessment_unified(
         if float(i.get("scoreDelta", 0)) != 0
     ]
 
-    recommendations = _recommendations_preview_from_score_output(score_out)
-    # Force recommendation type to match model-derived recommendation (unified contract).
-    if recommendations:
-        recommendations[0]["type"] = recommendation_type
-
-    primary_reason = str(getattr(score_out, "primary_reason", "") or "")
-    if not primary_reason:
-        primary_reason = (
-            "ความเสี่ยงโดยรวมสูง" if risk_level == "HIGH" else "ควรพิจารณาเพิ่มเติม" if risk_level == "MEDIUM" else "ความเสี่ยงโดยรวมอยู่ในเกณฑ์ต่ำ"
-        )
+    recommendations = _recommendations_from_type(recommendation_type)
+    primary_reason = _primary_reason_from_matrix(risk_level=risk_level, has_default=bool(has_default), dti=float(dti))
 
     return {
         "assessmentId": assessment_id,
@@ -525,7 +605,7 @@ def _evaluate_assessment_unified(
             "score": round(final_score, 2),
             "scoreScale": 100,
             "creditScore": credit_score,
-            "scoreGrade": _grade_from_score(final_score),
+            "scoreGrade": score_grade,
             "defaultProbability": round(model_prob, 6),
             "riskLevel": risk_level,
             "recommendationType": recommendation_type,
@@ -1076,6 +1156,8 @@ def calculate_preview(
     # 4. Deterministic scoring (use both form and model output)
     age = _age_years(req.applicantProfile.dateOfBirth)
     has_defaulted = any(d.isDefaulted for d in req.debtInfos)
+    income = float(req.employmentInfo.monthlyIncome)
+    dti = float(req.financialInfo.monthlyDebtPayment) / income if income > 0 else 1.0
     score_out = calculate_risk(
         age_years=age,
         monthly_income=req.employmentInfo.monthlyIncome,
@@ -1098,6 +1180,8 @@ def calculate_preview(
         saved_at=None,
         result_id=None,
         input_snapshot=input_snapshot,
+        has_default=has_defaulted,
+        dti=dti,
     )
     return ok(response_data, "คำนวณผลประเมินสำเร็จ")
 
@@ -1212,8 +1296,19 @@ def submit_assessment(
     )
     next_ver = int(latest_ver or 0) + 1
     model_prob = float(model_result["defaultProbability"])
-    model_risk_level = _risk_level_from_probability(model_prob)
-    model_recommendation_type = _recommendation_from_probability(model_prob)
+    dti = float(getattr(out, "dti", 1.0) or 1.0)
+    canonical_risk_level = _risk_level_from_probability(model_prob)
+    canonical_recommendation_type = _recommendation_from_matrix(
+        p=model_prob,
+        score=float(out.score),
+        has_default=bool(has_defaulted),
+        dti=dti,
+    )
+    canonical_primary_reason = _primary_reason_from_matrix(
+        risk_level=canonical_risk_level,
+        has_default=bool(has_defaulted),
+        dti=dti,
+    )
     result = RiskResult(
         assessment_id=assessment.id,
         result_version=next_ver,
@@ -1223,9 +1318,9 @@ def submit_assessment(
         credit_score=out.credit_score,
         score_grade=out.score_grade,
         default_probability=model_prob,
-        risk_level=model_risk_level,
-        recommendation_type=model_recommendation_type,
-        primary_reason=str(model_result.get("decision") or out.primary_reason),
+        risk_level=canonical_risk_level,
+        recommendation_type=canonical_recommendation_type,
+        primary_reason=canonical_primary_reason,
         calculated_by="MODEL",
     )
     db.add(result)
@@ -1244,7 +1339,7 @@ def submit_assessment(
                 detail=f["labelTh"],
             )
         )
-    for r in out.recommendations:
+    for r in _recommendations_from_type(canonical_recommendation_type):
         db.add(
             RiskRecommendation(
                 risk_result_id=result.id,
@@ -1305,6 +1400,8 @@ def submit_assessment(
         saved_at=result.created_at,
         result_id=result.id,
         input_snapshot=input_snapshot,
+        has_default=has_defaulted,
+        dti=dti,
     )
     return ok(response_data, "บันทึกผลการประเมินสำเร็จ")
 
@@ -1566,29 +1663,41 @@ def re_evaluate(
     )
     model_result = prediction_service.predict(model_payload, threshold=threshold)
 
+    has_defaulted = any(d.isDefaulted for d in req.debtInfos) if req is not None else any(d.is_defaulted for d in debts)
     out = calculate_risk(
         age_years=_age_years(req.applicantProfile.dateOfBirth) if req is not None else profile.age_years_snapshot,
         monthly_income=req.employmentInfo.monthlyIncome if req is not None else float(emp.monthly_income),
         job_tenure_months=req.employmentInfo.jobTenureMonths if req is not None else emp.job_tenure_months,
         monthly_debt_payment=req.financialInfo.monthlyDebtPayment if req is not None else float(fin.monthly_debt_payment),
-        has_defaulted=(any(d.isDefaulted for d in req.debtInfos) if req is not None else any(d.is_defaulted for d in debts)),
+        has_defaulted=has_defaulted,
     )
     latest_ver = db.scalar(select(func.max(RiskResult.result_version)).where(RiskResult.assessment_id == assessment.id)) or 0
     model_prob = float(model_result["defaultProbability"])
-    model_risk_level = _risk_level_from_probability(model_prob)
-    model_recommendation_type = _recommendation_from_probability(model_prob)
+    dti = float(getattr(out, "dti", 1.0) or 1.0)
+    canonical_risk_level = _risk_level_from_probability(model_prob)
+    canonical_recommendation_type = _recommendation_from_matrix(
+        p=model_prob,
+        score=float(out.score),
+        has_default=bool(has_defaulted),
+        dti=dti,
+    )
+    canonical_primary_reason = _primary_reason_from_matrix(
+        risk_level=canonical_risk_level,
+        has_default=bool(has_defaulted),
+        dti=dti,
+    )
     result = RiskResult(
         assessment_id=assessment.id,
         result_version=int(latest_ver) + 1,
-        model_version="hybrid_v1",
+        model_version="application_model_v1",
         score=out.score,
         score_scale=100,
         credit_score=out.credit_score,
         score_grade=out.score_grade,
         default_probability=model_prob,
-        risk_level=model_risk_level,
-        recommendation_type=model_recommendation_type,
-        primary_reason=str(model_result.get("decision") or out.primary_reason),
+        risk_level=canonical_risk_level,
+        recommendation_type=canonical_recommendation_type,
+        primary_reason=canonical_primary_reason,
         calculated_by="MODEL",
     )
     db.add(result)
@@ -1606,7 +1715,7 @@ def re_evaluate(
                 detail=f["labelTh"],
             )
         )
-    for r in out.recommendations:
+    for r in _recommendations_from_type(canonical_recommendation_type):
         db.add(
             RiskRecommendation(
                 risk_result_id=result.id,
@@ -1651,6 +1760,8 @@ def re_evaluate(
         saved_at=result.created_at,
         result_id=result.id,
         input_snapshot=input_snapshot,
+        has_default=has_defaulted,
+        dti=dti,
     )
     return ok(response_data, "ประเมินใหม่สำเร็จ")
 
